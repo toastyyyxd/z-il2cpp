@@ -116,6 +116,7 @@ fn errorCode(err: Error) i32 {
         error.ArgumentsNotSupported => -15,
         error.VirtualMethodNotSupported => -16,
         error.InvalidParameterCount => -17,
+        error.ArgumentCountMismatch => -18,
     };
 }
 

@@ -134,6 +134,7 @@ Error codes.
 -13 unbox failed
 -14 cache full
 -15 arguments not supported
+-18 argument count mismatch
 -16 virtual method not supported
 -17 invalid parameter count
 ```
