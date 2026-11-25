@@ -6,7 +6,7 @@ Zig bindings + native hot module for IL2CPP games. Game-agnostic.
 - mod logic: native
 - JS VM: no per-frame work
 
-Status: M0. Hot module and game-free harness work. `src/il2cpp.zig` is a stub.
+Status: hot module, game-free harness, native screen width read inside game. `src/il2cpp.zig` is a stub.
 
 ## Build
 
@@ -23,7 +23,23 @@ zig build smoke-host
 FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll scripts/smoke.sh
 ```
 
-Requirements: Zig 0.18-dev (flake pin), Wine for the smoke test, Frida gadget >= 17.25.
+```sh
+GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll scripts/ingame.sh
+```
+
+Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Game directory needs the winhttp proxy deployed.
+
+## Dev loop
+
+```sh
+GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget-17.26.2-windows-x86_64.dll scripts/session.sh
+zig build hot
+cp zig-out/hot/hot-windows-x86_64.pe "$GAME_DIR/hot/"
+python3 scripts/probe.py
+scripts/session.sh stop
+```
+
+Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a running game.
 
 ## Layout
 
@@ -37,7 +53,12 @@ tools/strip_pe_tls.zig     PE TLS directory strip
 tools/gen_manifest.zig     artifact manifest (name, size, sha256)
 tests/smoke/host.zig       smoke host, loads frida-gadget.dll
 tests/smoke/agent.js       smoke agent, maps module and asserts ABI
+tests/ingame/agent.js      in-game agent, native screen width probe
 scripts/smoke.sh           smoke orchestration
+scripts/session.sh         persistent listen-mode game session
+scripts/probe.py           host probe runner, connects to session
+tests/ingame/probe.js      probe agent for the persistent session
+scripts/ingame.sh          one-shot in-game probe orchestration
 ```
 
 ## Hot module ABI v1
@@ -54,7 +75,42 @@ scripts/smoke.sh           smoke orchestration
 | 24 | 8 | `last_frame` |
 | 32 | 32 | `reserved` |
 
-Exports: `hot_abi`, `hot_state_size`, `hot_init`, `hot_tick`, `hot_tick_count`, `hot_last_frame`.
+`reserved[0]`: host API pointer. Set by `hot_bind_host`.
+
+`HostApi`: two Windows loader pointers.
+
+| offset | field |
+| --- | --- |
+| 0 | `GetModuleHandleW` |
+| 8 | `GetProcAddress` |
+
+Exports:
+
+| export | result |
+| --- | --- |
+| `hot_abi` | ABI version |
+| `hot_state_size` | `State` size |
+| `hot_init` | ABI version, 0 on bad magic |
+| `hot_bind_host` | ABI version, 0 on null input |
+| `hot_tick` | tick count |
+| `hot_tick_count` | tick count |
+| `hot_last_frame` | last frame |
+| `hot_probe_screen_width` | screen width, or negative error |
+
+Probe errors:
+
+```
+-1 no state
+-2 no host api
+-3 GameAssembly not loaded
+-4 missing il2cpp export
+-5 no assemblies
+-6 no Screen class
+-7 no get_width method
+-8 invoke returned null
+-9 managed exception
+-10 unbox returned null
+```
 
 Host side:
 - allocate and zero `State`

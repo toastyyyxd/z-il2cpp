@@ -1,8 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const abi_version: u32 = 1;
 
 pub const init_magic: u32 = 0x324c315a;
+
+pub const HostApi = if (builtin.os.tag == .windows) extern struct {
+    get_module_handle: *const fn ([*:0]const u16) callconv(.winapi) ?*anyopaque,
+    get_proc_address: *const fn (?*anyopaque, [*:0]const u8) callconv(.winapi) ?*anyopaque,
+} else extern struct {
+    get_module_handle: *const fn ([*:0]const u16) callconv(.c) ?*anyopaque,
+    get_proc_address: *const fn (?*anyopaque, [*:0]const u8) callconv(.c) ?*anyopaque,
+};
 
 pub const State = extern struct {
     abi_version: u32,
