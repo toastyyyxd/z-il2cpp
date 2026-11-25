@@ -8,6 +8,14 @@ pub const Method = struct {
     pointer: ?*anyopaque,
 
     pub fn invoke(self: Method, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
+        return self.call(null, arguments, ReturnType);
+    }
+
+    pub fn invokeOn(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
+        return self.call(instance, arguments, ReturnType);
+    }
+
+    fn call(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
         const ArgumentsType = @TypeOf(arguments);
         const argument_count = switch (@typeInfo(ArgumentsType)) {
             .@"struct" => |info| info.field_names.len,
@@ -31,9 +39,10 @@ pub const Method = struct {
 
         var exception: ?*anyopaque = null;
         const params: ?[*]?*anyopaque = if (argument_count == 0) null else &pointers;
-        const result = self.runtime.exports.runtime_invoke(method_pointer, null, params, &exception);
+        const result = self.runtime.exports.runtime_invoke(method_pointer, instance, params, &exception);
         if (exception != null) return error.ManagedException;
         if (ReturnType == void) return {};
+        if (ReturnType == ?*anyopaque) return result;
         const boxed = result orelse return error.InvokeFailed;
         return convert.fromBoxed(ReturnType, boxed, self.runtime.exports.object_unbox);
     }

@@ -14,6 +14,13 @@ pub const Exports = struct {
     object_unbox: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     thread_attach: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     thread_current: *const fn () callconv(.c) ?*anyopaque,
+    gchandle_new: *const fn (?*anyopaque, bool) callconv(.c) usize,
+    gchandle_get_target: *const fn (usize) callconv(.c) ?*anyopaque,
+    gchandle_free: *const fn (usize) callconv(.c) void,
+    string_new: *const fn ([*:0]const u8) callconv(.c) ?*anyopaque,
+    string_length: *const fn (?*anyopaque) callconv(.c) i32,
+    string_chars: *const fn (?*anyopaque) callconv(.c) ?[*]const u16,
+    gc_collect: *const fn (i32) callconv(.c) void,
 
     pub fn resolve(loader: Loader, module: ?*anyopaque) Error!Exports {
         return .{
@@ -29,6 +36,13 @@ pub const Exports = struct {
             .object_unbox = try resolveOne(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, loader, module, "il2cpp_object_unbox"),
             .thread_attach = try resolveOne(*const fn (?*anyopaque) callconv(.c) ?*anyopaque, loader, module, "il2cpp_thread_attach"),
             .thread_current = try resolveOne(*const fn () callconv(.c) ?*anyopaque, loader, module, "il2cpp_thread_current"),
+            .gchandle_new = try resolveOne(*const fn (?*anyopaque, bool) callconv(.c) usize, loader, module, "il2cpp_gchandle_new"),
+            .gchandle_get_target = try resolveOne(*const fn (usize) callconv(.c) ?*anyopaque, loader, module, "il2cpp_gchandle_get_target"),
+            .gchandle_free = try resolveOne(*const fn (usize) callconv(.c) void, loader, module, "il2cpp_gchandle_free"),
+            .string_new = try resolveOne(*const fn ([*:0]const u8) callconv(.c) ?*anyopaque, loader, module, "il2cpp_string_new"),
+            .string_length = try resolveOne(*const fn (?*anyopaque) callconv(.c) i32, loader, module, "il2cpp_string_length"),
+            .string_chars = try resolveOne(*const fn (?*anyopaque) callconv(.c) ?[*]const u16, loader, module, "il2cpp_string_chars"),
+            .gc_collect = try resolveOne(*const fn (i32) callconv(.c) void, loader, module, "il2cpp_gc_collect"),
         };
     }
 };

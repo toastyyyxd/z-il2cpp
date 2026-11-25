@@ -48,34 +48,37 @@ function probe() {
 }
 
 function arm(mapped) {
-    try {
-        const corlib = new NativeFunction(mapped.getExportByName("il2cpp_get_corlib"), "pointer", [])();
-        if (!corlib.isNull()) {
-            probe();
-            return;
-        }
-    } catch (_) {
-        report({ kind: "state", value: "runtime not initialized" });
+    const listeners = [];
+    let started = false;
+
+    function install(address) {
+        const listener = Interceptor.attach(address, {
+            onEnter() {
+                if (started) return;
+                try {
+                    const corlib = new NativeFunction(mapped.getExportByName("il2cpp_get_corlib"), "pointer", [])();
+                    if (corlib.isNull()) return;
+                } catch (_) {
+                    return;
+                }
+                started = true;
+                for (const other of listeners) other.detach();
+                probe();
+            },
+        });
+        listeners.push(listener);
     }
 
     try {
-        const init = mapped.getExportByName("il2cpp_init");
-        Interceptor.attach(init, {
-            onLeave() {
-                // IL2CPP calls from the JS thread crash during startup. Run on a game thread.
-                const objectNew = mapped.getExportByName("il2cpp_object_new");
-                const allocation = Interceptor.attach(objectNew, {
-                    onEnter() {
-                        allocation.detach();
-                        probe();
-                    },
-                });
-            },
-        });
-        report({ kind: "armed" });
-    } catch (error) {
-        fail("hook", error instanceof Error ? error.message : String(error));
-    }
+        install(mapped.getExportByName("il2cpp_object_new"));
+    } catch (_) {}
+    try {
+        install(mapped.getExportByName("il2cpp_string_new"));
+    } catch (_) {}
+    try {
+        install(Process.getModuleByName("user32.dll").getExportByName("PeekMessageW"));
+    } catch (_) {}
+    report({ kind: "armed", hooks: listeners.length });
 }
 
 function main() {

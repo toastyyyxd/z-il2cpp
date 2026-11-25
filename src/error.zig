@@ -17,4 +17,8 @@ pub const Error = error{
     ArgumentCountMismatch,
     VirtualMethodNotSupported,
     InvalidParameterCount,
+    NullObject,
+    HandleFailed,
+    StringConversionFailed,
+    InvalidBuffer,
 };

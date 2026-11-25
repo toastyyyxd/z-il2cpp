@@ -1,4 +1,7 @@
+const std = @import("std");
 const Runtime = @import("Runtime.zig").Runtime;
+const ManagedString = @import("String.zig").String;
+const Handle = @import("Handle.zig").Handle;
 const Loader = @import("Loader.zig").Loader;
 const Error = @import("error.zig").Error;
 
@@ -117,6 +120,10 @@ fn errorCode(err: Error) i32 {
         error.VirtualMethodNotSupported => -16,
         error.InvalidParameterCount => -17,
         error.ArgumentCountMismatch => -18,
+        error.NullObject => -19,
+        error.HandleFailed => -20,
+        error.StringConversionFailed => -21,
+        error.InvalidBuffer => -22,
     };
 }
 

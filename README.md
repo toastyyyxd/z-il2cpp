@@ -6,7 +6,7 @@ Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 - mod logic: native
 - JS VM: no per-frame work
 
-Status: shared library and game-free harness work. Native screen width read inside game works. `findClass`, `findMethod`, `findField`, invoke and field access are implemented.
+Status: reflection layer works in game. Static and instance calls, primitive arguments, managed strings, GC handles, field access.
 
 ## Build
 
@@ -71,14 +71,30 @@ scripts/ingame.sh          one-shot probe orchestration
 ## Zig API
 
 ```zig
-const loader = Loader{ .get_module_handle = ..., .get_proc_address = ... };
 const runtime = try Runtime.init(loader, scratch);
+
 const screen = try runtime.findClass("UnityEngine", "Screen");
 const width_method = try screen.findMethod("get_width", 0);
 const width = try width_method.invoke(.{}, i32);
+
+const camera = try runtime.findClass("UnityEngine", "Camera");
+const main_method = try camera.findMethod("get_main", 0);
+const instance = try main_method.invoke(.{}, ?*anyopaque);
+const fov_method = try camera.findMethod("get_fieldOfView", 0);
+const fov = try fov_method.invokeOn(instance, .{}, f32);
+
+const text = try ManagedString.fromUtf8(runtime, "hello");
+var buffer: [64]u8 = undefined;
+const utf8 = try text.toUtf8(buffer[0..]);
+
+const handle = try Handle.acquire(runtime, instance, .strong);
+defer handle.release();
+const target = handle.target();
 ```
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.
+
+Reference values returned as `?*anyopaque` are transient. Store them through `Handle`. Static methods use `invoke`. Instance methods use `invokeOn`.
 
 ## C ABI
 
@@ -135,6 +151,10 @@ Error codes.
 -14 cache full
 -15 arguments not supported
 -18 argument count mismatch
+-19 null object
+-20 handle creation failed
+-21 string conversion failed
+-22 invalid buffer
 -16 virtual method not supported
 -17 invalid parameter count
 ```
@@ -147,6 +167,8 @@ Host side.
 - retain the module wrapper, GC unmaps it
 - strip PE TLS directory, required for Wine/Proton
 - call from one thread
+- handle values are pointer-sized in this build; treat them as opaque
+- weak handles are not available, the export is missing
 
 Version: `abi_version` in `src/c.zig`. Increment on incompatible ABI change.
 
