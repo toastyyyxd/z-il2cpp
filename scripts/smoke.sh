@@ -20,19 +20,19 @@ if [ -z "$FRIDA_GADGET" ] || [ ! -f "$FRIDA_GADGET" ]; then
     fail "set FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll (https://github.com/frida/frida/releases)"
 fi
 
-echo "smoke: building hot modules and host"
-zig build hot smoke-host
+echo "smoke: building shared artifacts and host"
+zig build shared smoke-host
 
 echo "smoke: laying out $LAYOUT_DIR"
 rm -rf "$LAYOUT_DIR"
-mkdir -p "$LAYOUT_DIR/hot" "$LAYOUT_DIR/mods"
+mkdir -p "$LAYOUT_DIR/shared" "$LAYOUT_DIR/mods"
 cp "$FRIDA_GADGET" "$LAYOUT_DIR/frida-gadget.dll"
 cp "$REPO_DIR/tests/smoke/agent.js" "$LAYOUT_DIR/mods/agent.js"
 cat > "$LAYOUT_DIR/frida-gadget.config" <<'JSON'
 {"interaction":{"type":"script","path":"mods/agent.js"},"runtime":"qjs"}
 JSON
 cp "$LAYOUT_DIR/frida-gadget.config" "$LAYOUT_DIR/frida-gadget.config.json"
-cp "$REPO_DIR"/zig-out/hot/* "$LAYOUT_DIR/hot/"
+cp "$REPO_DIR"/zig-out/shared/* "$LAYOUT_DIR/shared/"
 cp "$REPO_DIR/zig-out/smoke/smoke-host.exe" "$LAYOUT_DIR/host.exe"
 
 echo "smoke: running under wine (prefix $WINEPREFIX)"
@@ -56,6 +56,6 @@ grep -q '"ok": true' "$LAYOUT_DIR/smoke-result.json" || status=1
 WINEPREFIX="$WINEPREFIX" wineserver -k 2>/dev/null || true
 
 if [ "$status" -ne 0 ]; then
-    fail "hot-module smoke test failed (see $LAYOUT_DIR/smoke-result.json)"
+    fail "shared-library smoke test failed (see $LAYOUT_DIR/smoke-result.json)"
 fi
 echo "smoke: PASS"

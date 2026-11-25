@@ -15,11 +15,11 @@ if [ ! -x "$(command -v wine)" ]; then
 fi
 
 mkdir -p "$OUT"
-zig build hot
+zig build shared
 
-rm -rf "$GAME_DIR/hot"
-mkdir -p "$GAME_DIR/hot" "$GAME_DIR/mods"
-cp "$REPO_DIR"/zig-out/hot/* "$GAME_DIR/hot/"
+rm -rf "$GAME_DIR/shared"
+mkdir -p "$GAME_DIR/shared" "$GAME_DIR/mods"
+cp "$REPO_DIR"/zig-out/shared/* "$GAME_DIR/shared/"
 cp "$REPO_DIR/tests/ingame/agent.js" "$GAME_DIR/mods/ingame.js"
 cp "$FRIDA_GADGET" "$GAME_DIR/frida-gadget.dll"
 

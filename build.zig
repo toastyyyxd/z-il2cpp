@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const hot_step = b.step("hot", "Build hot-module artifacts");
+    const shared_step = b.step("shared", "Build mapped shared-library artifacts");
 
     const manifest_tool = b.addExecutable(.{
         .name = "gen-manifest",
@@ -32,35 +32,35 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const hot_targets = [_]HotTarget{
+    const shared_targets = [_]SharedTarget{
         .{
-            .artifact_name = "hot-windows-x86_64.pe",
+            .artifact_name = "z-il2cpp-windows-x86_64.pe",
             .query = .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu },
             .strip_tls = true,
         },
         .{
-            .artifact_name = "hot-linux-x86_64.so",
+            .artifact_name = "z-il2cpp-linux-x86_64.so",
             .query = .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
             .strip_tls = false,
         },
         .{
-            .artifact_name = "hot-linux-aarch64.so",
+            .artifact_name = "z-il2cpp-linux-aarch64.so",
             .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
             .strip_tls = false,
         },
     };
 
-    for (hot_targets) |spec| {
-        const hot_target = b.resolveTargetQuery(spec.query);
-        const hot_module = b.createModule(.{
-            .root_source_file = b.path("src/hot/module.zig"),
-            .target = hot_target,
+    for (shared_targets) |spec| {
+        const shared_target = b.resolveTargetQuery(spec.query);
+        const shared_module = b.createModule(.{
+            .root_source_file = b.path("src/c.zig"),
+            .target = shared_target,
             .optimize = .ReleaseSmall,
             .link_libc = false,
         });
         const library = b.addLibrary(.{
-            .name = "z_il2cpp_hot",
-            .root_module = hot_module,
+            .name = "z_il2cpp",
+            .root_module = shared_module,
             .linkage = .dynamic,
         });
 
@@ -69,16 +69,16 @@ pub fn build(b: *std.Build) void {
         else
             library.getEmittedBin();
 
-        const install = b.addInstallFileWithDir(artifact, .{ .custom = "hot" }, spec.artifact_name);
-        hot_step.dependOn(&install.step);
+        const install = b.addInstallFileWithDir(artifact, .{ .custom = "shared" }, spec.artifact_name);
+        shared_step.dependOn(&install.step);
         b.getInstallStep().dependOn(&install.step);
 
         gen_manifest.addArg(spec.artifact_name);
         gen_manifest.addFileArg(artifact);
     }
 
-    const install_manifest = b.addInstallFileWithDir(manifest_out, .{ .custom = "hot" }, "manifest.json");
-    hot_step.dependOn(&install_manifest.step);
+    const install_manifest = b.addInstallFileWithDir(manifest_out, .{ .custom = "shared" }, "manifest.json");
+    shared_step.dependOn(&install_manifest.step);
     b.getInstallStep().dependOn(&install_manifest.step);
 
     const smoke_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu });
@@ -102,12 +102,12 @@ pub fn build(b: *std.Build) void {
     const root_tests = b.addTest(.{ .root_module = mod });
     test_step.dependOn(&b.addRunArtifact(root_tests).step);
 
-    const hot_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/hot/module.zig"),
+    const shared_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/c.zig"),
         .target = target,
         .optimize = optimize,
     }) });
-    test_step.dependOn(&b.addRunArtifact(hot_tests).step);
+    test_step.dependOn(&b.addRunArtifact(shared_tests).step);
 
     const strip_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("tools/strip_pe_tls.zig"),
@@ -131,7 +131,7 @@ pub fn build(b: *std.Build) void {
     fmt_step.dependOn(&fmt.step);
 }
 
-const HotTarget = struct {
+const SharedTarget = struct {
     artifact_name: []const u8,
     query: std.Target.Query,
     strip_tls: bool,

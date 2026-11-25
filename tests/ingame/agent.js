@@ -1,164 +1,111 @@
 const ABI_VERSION = 1;
 const INIT_MAGIC = 0x324c315a;
+const MODULE_PATH = "shared/z-il2cpp-windows-x86_64.pe";
+const SCRATCH_SIZE = 4096;
 
 const result = {
     ok: false,
     frida: Frida.version,
-    platform: Process.platform,
-    arch: Process.arch,
-    module: "hot/hot-windows-x86_64.pe",
+    module: MODULE_PATH,
     screen_width: null,
     status: null,
 };
 
-try {
-    File.writeAllText("probe-boot.json", JSON.stringify({ frida: Frida.version, cwd: Process.getCurrentDir() }));
-} catch (_) {}
-
-function stageWrite(name, extra) {
-    try {
-        File.writeAllText("probe-stage.json", JSON.stringify({ frida: Frida.version, stage: name, extra: extra ?? null }));
-    } catch (_) {}
-}
-
-function stage(name, extra) {
-    try {
-        File.writeAllText("probe-stage.json", JSON.stringify({ frida: Frida.version, stage: name, extra: extra ?? null }));
-    } catch (_) {}
-}
+let libraryModule = null;
+let state = null;
+let loader = null;
+let scratch = null;
 
 function writeResult() {
     File.writeAllText("probe-result.json", JSON.stringify(result, null, 2) + "\n");
     console.log("[probe] " + JSON.stringify(result));
 }
 
-function fail(message) {
-    result.error = message;
+function fail(kind, error) {
+    result.error = kind + ": " + String(error);
     writeResult();
 }
 
-function main() {
-    stage("map-start");
-    let module;
+function bind() {
     try {
-        const bytes = File.readAllBytes(result.module);
-        module = new CModule(bytes);
-        globalThis.__hotModule = module;
-    } catch (error) {
-        fail("map: " + (error instanceof Error ? error.message : String(error)));
-        return;
-    }
-
-    stage("mapped");
-    const required = ["hot_abi", "hot_state_size", "hot_init", "hot_bind_host", "hot_probe_screen_width", "hot_probe_stage"];
-    const missing = required.filter((name) => module[name] === undefined);
-    if (missing.length !== 0) {
-        fail("exports: " + missing.join(","));
-        return;
-    }
-
-    const abi = new NativeFunction(module.hot_abi, "uint", [])();
-    if (abi !== ABI_VERSION) {
-        fail("abi: " + abi);
-        return;
-    }
-
-    const stateSize = new NativeFunction(module.hot_state_size, "uint", [])();
-    const state = Memory.alloc(stateSize);
-    stage("size", stateSize);
-    const init = new NativeFunction(module.hot_init, "uint", ["pointer", "uint"]);
-    if (init(state, INIT_MAGIC) !== ABI_VERSION) {
-        fail("init");
-        return;
-    }
-
-    stage("inited");
-    try {
+        libraryModule = new CModule(File.readAllBytes(MODULE_PATH));
+        const required = ["zil2cpp_abi", "zil2cpp_state_size", "zil2cpp_init", "zil2cpp_runtime_init", "zil2cpp_probe_screen_width"];
+        const missing = required.filter((name) => libraryModule[name] === undefined);
+        if (missing.length !== 0) return fail("exports", missing.join(",")), false;
+        if (new NativeFunction(libraryModule.zil2cpp_abi, "uint", [])() !== ABI_VERSION) return fail("abi", "mismatch"), false;
+        state = Memory.alloc(new NativeFunction(libraryModule.zil2cpp_state_size, "uint", [])());
+        const init = new NativeFunction(libraryModule.zil2cpp_init, "uint", ["pointer", "uint"]);
+        if (init(state, INIT_MAGIC) !== ABI_VERSION) return fail("init", "rejected"), false;
         const kernel32 = Process.getModuleByName("kernel32.dll");
-        const host = Memory.alloc(Process.pointerSize * 2);
-        host.writePointer(kernel32.getExportByName("GetModuleHandleW"));
-        host.add(Process.pointerSize).writePointer(kernel32.getExportByName("GetProcAddress"));
-        const bind = new NativeFunction(module.hot_bind_host, "uint", ["pointer", "pointer"]);
-        if (bind(state, host) !== ABI_VERSION) {
-            fail("bind");
-            return;
-        }
+        loader = Memory.alloc(Process.pointerSize * 2);
+        loader.writePointer(kernel32.getExportByName("GetModuleHandleW"));
+        loader.add(Process.pointerSize).writePointer(kernel32.getExportByName("GetProcAddress"));
+        scratch = Memory.alloc(SCRATCH_SIZE);
+        const runtimeInit = new NativeFunction(libraryModule.zil2cpp_runtime_init, "int", ["pointer", "pointer", "pointer", "size_t"]);
+        const status = runtimeInit(state, loader, scratch, SCRATCH_SIZE);
+        if (status !== ABI_VERSION) return fail("runtime_init", status), false;
+        return true;
     } catch (error) {
-        fail("host api: " + (error instanceof Error ? error.message : String(error)));
-        return;
+        return fail("bind", error instanceof Error ? error.message : String(error)), false;
     }
-
-    stage("bound");
-    const probe = () => {
-        const call = new NativeFunction(module.hot_probe_stage, "int", ["pointer", "uint"]);
-        for (const stage of [1, 2, 3, 4, 5, 6, 7]) {
-            const status = call(state, stage);
-            stageWrite("value", { stage: stage, status: status });
-            if (status < 0) {
-                result.status = status;
-                result.stage = stage;
-                result.ok = false;
-                writeResult();
-                return;
-            }
-        }
-        const width = call(state, 7);
-        result.status = width;
-        result.screen_width = width > 0 ? width : null;
-        result.ok = width > 0;
-        writeResult();
-    };
-
-    const gameAssembly = Process.findModuleByName("GameAssembly.dll");
-    stage("find", gameAssembly === null ? "null" : "present");
-    if (gameAssembly !== null) {
-        arm(gameAssembly, probe);
-        return;
-    }
-
-    stage("observe");
-
-    const observer = Process.attachModuleObserver({
-        onAdded(added) {
-            if (added.name.toLowerCase() === "gameassembly.dll") {
-                observer.detach();
-                arm(added, probe);
-            }
-        },
-    });
 }
 
-function arm(mapped, probe) {
-    stage("arm");
+function run() {
+    if (!bind()) return;
+    const width = new NativeFunction(libraryModule.zil2cpp_probe_screen_width, "int", ["pointer"])(state);
+    result.status = width;
+    result.screen_width = width > 0 ? width : null;
+    result.ok = width > 0;
+    writeResult();
+}
+
+function arm(mapped) {
     try {
         const corlib = new NativeFunction(mapped.getExportByName("il2cpp_get_corlib"), "pointer", [])();
-        stage("corlib", corlib.isNull());
         if (!corlib.isNull()) {
-            probe();
+            run();
             return;
         }
     } catch (_) {
-        stage("corlib", "unready");
     }
 
     try {
         const init = mapped.getExportByName("il2cpp_init");
         Interceptor.attach(init, {
             onLeave() {
-                setImmediate(() => {
-                    stage("probe");
-                    probe();
+                // IL2CPP calls from the JS thread crash during startup. Run on a game thread.
+                const objectNew = mapped.getExportByName("il2cpp_object_new");
+                const allocation = Interceptor.attach(objectNew, {
+                    onEnter() {
+                        allocation.detach();
+                        run();
+                    },
                 });
             },
         });
-        stage("hooked");
     } catch (error) {
-        fail("il2cpp_init: " + (error instanceof Error ? error.message : String(error)));
+        fail("hook", error instanceof Error ? error.message : String(error));
     }
+}
+
+function main() {
+    const mapped = Process.findModuleByName("GameAssembly.dll");
+    if (mapped !== null) {
+        arm(mapped);
+        return;
+    }
+    const observer = Process.attachModuleObserver({
+        onAdded(added) {
+            if (added.name.toLowerCase() === "gameassembly.dll") {
+                observer.detach();
+                arm(added);
+            }
+        },
+    });
 }
 
 try {
     main();
 } catch (error) {
-    fail("main: " + (error instanceof Error ? error.message : String(error)));
+    fail("main", error instanceof Error ? error.message : String(error));
 }

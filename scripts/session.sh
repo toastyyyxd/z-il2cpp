@@ -28,11 +28,11 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
 fi
 
 mkdir -p "$OUT"
-zig build hot
+zig build shared
 
-rm -rf "$GAME_DIR/hot"
-mkdir -p "$GAME_DIR/hot"
-cp "$REPO_DIR"/zig-out/hot/* "$GAME_DIR/hot/"
+rm -rf "$GAME_DIR/shared"
+mkdir -p "$GAME_DIR/shared"
+cp "$REPO_DIR"/zig-out/shared/* "$GAME_DIR/shared/"
 cp "$FRIDA_GADGET" "$GAME_DIR/frida-gadget.dll"
 
 if [ ! -d "$BACKUP" ]; then
