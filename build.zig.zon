@@ -1,0 +1,16 @@
+.{
+    .name = .z_il2cpp,
+    .version = "0.1.0",
+    .fingerprint = 0x919f422845af191d,
+    .minimum_zig_version = "0.18.0-dev.1284+2385a0153",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "scripts",
+        "src",
+        "tests",
+        "tools",
+    },
+}
