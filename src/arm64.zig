@@ -6,6 +6,7 @@ pub const Kind = enum {
     branch_bl,
     bti,
     b_cond,
+    bc_cond,
     cbz,
     tbz,
     ldr_literal,
@@ -17,6 +18,7 @@ pub fn classify(instruction: u32) Kind {
     if ((instruction & 0xFC000000) == 0x94000000) return .branch_bl;
     if ((instruction & 0x7C000000) == 0x14000000) return .branch_b;
     if ((instruction & 0xFFFFFF3F) == 0xD503241F) return .bti;
+    if ((instruction & 0xFF000010) == 0x54000010) return .bc_cond;
     if ((instruction & 0xFF000010) == 0x54000000) return .b_cond;
     if ((instruction & 0x7E000000) == 0x34000000) return .cbz;
     if ((instruction & 0x7E000000) == 0x36000000) return .tbz;
@@ -70,6 +72,7 @@ test "classify arm64 instructions" {
     try std.testing.expectEqual(Kind.bti, classify(0xD503249F));
     try std.testing.expectEqual(Kind.bti, classify(0xD50324DF));
     try std.testing.expectEqual(Kind.b_cond, classify(0x54000000));
+    try std.testing.expectEqual(Kind.bc_cond, classify(0x54000010));
     try std.testing.expectEqual(Kind.cbz, classify(0x34000000));
     try std.testing.expectEqual(Kind.cbz, classify(0x35000000));
     try std.testing.expectEqual(Kind.tbz, classify(0x36000000));

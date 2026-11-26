@@ -78,6 +78,7 @@ pub fn activate(prepared: Prepared) Error!void {
 pub fn cancel(prepared: Prepared) void {
     const entry = &entries[prepared.slot];
     if (entry.active) return;
+    _ = linux.munmap(@ptrFromInt(entry.stub_page), page_size);
     entry.* = .{};
 }
 
@@ -174,11 +175,12 @@ fn buildTrampoline(trampoline: usize, patch_address: usize, instruction: u32, ki
         },
         .branch_bl => {
             const destination = arm64.branchDestination(instruction, patch_address);
-            writeWord(trampoline, 0x58000070);
+            writeWord(trampoline, 0x58000090);
             writeWord(trampoline + 4, 0xD63F0200);
             const branch = arm64.encodeBranch(trampoline + 8, patch_address + 4) orelse return error.HookUnsupported;
             writeWord(trampoline + 8, branch);
-            writeQuad(trampoline + 12, destination);
+            writeWord(trampoline + 12, 0xD503201F);
+            writeQuad(trampoline + 16, destination);
         },
         else => return error.HookUnsupported,
     }

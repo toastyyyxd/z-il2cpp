@@ -142,6 +142,15 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 - `src/backend/stub.zig`: unsupported targets.
 - `z_il2cpp.Hooks` keeps the same API across backends.
 
+## Limitations
+
+- Native code hooks have no thread quiescence. Install them at startup. Another core can keep executing the old instruction until its instruction cache is invalidated. Trampoline pages stay mapped so the old path remains valid.
+- Stub pages are retained after detach because other threads can still be inside them. Repeated native hook install and removal leaks one page per cycle.
+- MethodInfo layout, GC handle size, and array header size are validated against one game and Unity 6000.3. Probe each new build before relying on them.
+- Code patches and MinHook are visible to anti-cheat tooling. Do not use this in protected games.
+- The Android probe removes the target app for testing. Do not ship patched builds.
+- Linux artifacts build but are not validated. Supported targets are Windows x64 and Android arm64.
+
 ## Acceptance tests
 
 ```sh
