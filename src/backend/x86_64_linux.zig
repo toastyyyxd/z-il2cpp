@@ -5,10 +5,10 @@ const x86 = @import("../x86_64.zig");
 
 const page_size: usize = 4096;
 const patch_size: usize = 5;
-const max_hooks: usize = 64;
+const max_hooks: usize = 4096;
 const slot_size: usize = 64;
 const slots_per_page: usize = page_size / slot_size;
-const max_pages: usize = 8;
+const max_pages: usize = 64;
 const near_limit: usize = 1536 * 1024 * 1024;
 const trampoline_offset: usize = 24;
 const maps_size: usize = 1024 * 1024;

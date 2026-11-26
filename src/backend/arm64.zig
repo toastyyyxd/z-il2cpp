@@ -4,7 +4,7 @@ const Error = @import("../error.zig").Error;
 const arm64 = @import("../arm64.zig");
 
 const page_size: usize = 4096;
-const max_hooks = 64;
+const max_hooks = 1024;
 const near_limit: usize = 124 * 1024 * 1024;
 const stub_offset: usize = 0;
 const trampoline_offset: usize = 0x100;
