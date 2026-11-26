@@ -10,18 +10,26 @@ const stub_offset: usize = 0;
 const trampoline_offset: usize = 0x100;
 
 const Entry = struct {
+    target: usize = 0,
     patch_address: usize = 0,
     stub_page: usize = 0,
     original_instruction: u32 = 0,
+    patch_instruction: u32 = 0,
     active: bool = false,
 };
 
+pub const Prepared = struct {
+    slot: usize,
+    original: *const anyopaque,
+};
+
 var entries: [max_hooks]Entry = @splat(.{});
+var memory_fd: linux.fd_t = -2;
 
 pub fn init() Error!void {}
 pub fn deinit() Error!void {}
 
-pub fn attach(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!*const anyopaque {
+pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!Prepared {
     const target = @intFromPtr(target_pointer orelse return error.HookFailed);
     const detour = @intFromPtr(detour_pointer orelse return error.HookFailed);
     const slot = freeSlot() orelse return error.HookFailed;
@@ -49,23 +57,37 @@ pub fn attach(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!*c
     flushCache(stub_page, stub_page + page_size);
     if (!protect(stub_page, page_size, .{ .READ = true, .EXEC = true })) return error.HookProtectFailed;
 
-    writeInstruction(patch_address, patch_instruction) catch return error.HookWriteFailed;
     entries[slot] = .{
+        .target = target,
         .patch_address = patch_address,
         .stub_page = stub_page,
         .original_instruction = instruction,
-        .active = true,
+        .patch_instruction = patch_instruction,
+        .active = false,
     };
-    return @ptrFromInt(trampoline);
+    return .{ .slot = slot, .original = @ptrFromInt(trampoline) };
+}
+
+pub fn activate(prepared: Prepared) Error!void {
+    const entry = &entries[prepared.slot];
+    if (entry.active) return;
+    writeInstruction(entry.patch_address, entry.patch_instruction) catch return error.HookWriteFailed;
+    entry.active = true;
+}
+
+pub fn cancel(prepared: Prepared) void {
+    const entry = &entries[prepared.slot];
+    if (entry.active) return;
+    entry.* = .{};
 }
 
 pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
     for (&entries) |*entry| {
-        if (!entry.active) continue;
-        if (entry.patch_address != target and entry.patch_address != target + 4) continue;
-        writeInstruction(entry.patch_address, entry.original_instruction) catch {};
-        _ = linux.munmap(@ptrFromInt(entry.stub_page), page_size);
+        if (entry.target != target) continue;
+        if (entry.active) {
+            writeInstruction(entry.patch_address, entry.original_instruction) catch {};
+        }
         entry.* = .{};
         return;
     }
@@ -73,7 +95,7 @@ pub fn detach(target_pointer: ?*anyopaque) void {
 
 fn freeSlot() ?usize {
     for (&entries, 0..) |*entry, index| {
-        if (!entry.active) return index;
+        if (entry.target == 0) return index;
     }
     return null;
 }
@@ -82,7 +104,47 @@ fn readInstruction(address: usize) u32 {
     return @as(*const volatile u32, @ptrFromInt(address)).*;
 }
 
+pub fn supportsMethodPointer() bool {
+    return true;
+}
+
+pub fn readPointer(address: usize) ?usize {
+    if (!memoryPatchAvailable()) return null;
+    var value: u64 = 0;
+    const count = linux.pread(memory_fd, @ptrCast(&value), 8, @intCast(address));
+    if (@as(isize, @bitCast(count)) != 8) return null;
+    return @intCast(value);
+}
+
+pub fn writePointer(address: usize, value: usize) Error!void {
+    if (!memoryPatchAvailable()) return error.HookProtectFailed;
+    var copy: u64 = @intCast(value);
+    const count = linux.pwrite(memory_fd, @ptrCast(&copy), 8, @intCast(address));
+    if (@as(isize, @bitCast(count)) != 8) return error.HookWriteFailed;
+}
+
+pub fn usesMemoryPatch() bool {
+    return memoryPatchAvailable();
+}
+
+fn memoryPatchAvailable() bool {
+    if (memory_fd == -2) {
+        const flags: linux.O = @bitCast(@as(u32, 0o2));
+        const fd = linux.openat(linux.AT.FDCWD, "/proc/self/mem", flags, 0);
+        memory_fd = if (@as(isize, @bitCast(fd)) >= 0) @intCast(fd) else -1;
+    }
+    return memory_fd >= 0;
+}
+
 fn writeInstruction(address: usize, instruction: u32) !void {
+    if (memoryPatchAvailable()) {
+        var instruction_copy = instruction;
+        const written = linux.pwrite(memory_fd, @ptrCast(&instruction_copy), 4, @intCast(address));
+        if (@as(isize, @bitCast(written)) == 4) {
+            flushCache(address, address + 4);
+            return;
+        }
+    }
     const page = address & ~(page_size - 1);
     if (!protect(page, page_size, .{ .READ = true, .WRITE = true, .EXEC = true })) {
         return error.HookProtectFailed;

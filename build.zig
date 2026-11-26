@@ -48,6 +48,11 @@ pub fn build(b: *std.Build) void {
             .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .gnu },
             .strip_tls = false,
         },
+        .{
+            .artifact_name = "z-il2cpp-android-arm64.so",
+            .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android },
+            .strip_tls = false,
+        },
     };
 
     for (shared_targets) |spec| {

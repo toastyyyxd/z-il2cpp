@@ -27,7 +27,7 @@ FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll scripts/smoke.sh
 GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll scripts/ingame.sh
 ```
 
-Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64 only. Game directory needs the winhttp proxy deployed.
+Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64 and Android arm64. Game directory needs the winhttp proxy deployed.
 
 ## Dev loop
 
@@ -43,7 +43,27 @@ Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a
 
 ## Hooks
 
-Native inline hooks use vendored MinHook. Windows x64 only. The library API is `z_il2cpp.Hooks`.
+The library API is `z_il2cpp.Hooks`. Backends:
+
+- Windows x64: vendored MinHook, code hooks
+- AArch64: inline code hooks for native functions, method pointer hooks for managed methods
+- other targets: stub, `HookUnsupported`
+
+Managed methods on AArch64 are hooked by replacing `MethodInfo.methodPointer`. The original pointer is called directly from the detour. No instruction patch, no trampoline.
+
+```zig
+const Signature = fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
+var hook: ?Hooks.MethodPointerHook(Signature) = null;
+
+fn detour(instance: ?*anyopaque, method: ?*anyopaque) callconv(.c) void {
+    hook.?.original(instance, method);
+}
+
+hook = try Hooks.MethodPointerHook(Signature).install(update, &detour);
+hook.?.detach();
+```
+
+Native function hooks on AArch64 patch the entry instruction through `/proc/self/mem`. Page permissions are not changed. If that write fails, `mprotect` RWX is the fallback.
 
 - `tests/hooks/host.zig`: game-free hook test
 - `tests/hooks/spike.zig`: DLL that hooks `il2cpp_domain_get` in game
@@ -130,10 +150,24 @@ Expected: all selftests status 1 in the dev probe. Native loader writes `{"ok": 
 The library builds for `aarch64-linux-android` without the Android NDK.
 
 ```sh
-zig build android
+zig build android       # test probe library
+zig build shared        # z-il2cpp-android-arm64.so
 ```
 
-Output: `zig-out/android/libzil2cpp.so`. No dynamic dependencies. Raw syscalls for file and log access. Loader symbols come from `/proc/self/maps` and the ELF dynamic table. IL2CPP exports come from `dlopen` and `dlsym`.
+The shared artifact is the C ABI library. No dynamic dependencies. Raw syscalls for file and log access.
+
+Loader API:
+
+```zig
+const android = zil2cpp.android;
+_ = android.waitForLibrary("libil2cpp.so", 30000) orelse return;
+const loader = try android.loader("libil2cpp.so");
+const runtime = try Runtime.init(loader, scratch);
+const address = android.symbol("il2cpp_domain_get");
+const log = android.resolveSymbol("liblog.so", "__android_log_write");
+```
+
+Symbol lookup uses `/proc/self/maps` and the ELF dynamic table. The module handle comes from `dlopen`. 
 
 The probe loads the library into a repackaged split APK. `libmain.so` gains a `libzil2cpp.so` dependency. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. Results go to `/data/data/<package>/zil2cpp-log.txt`, read with `run-as`.
 
@@ -141,10 +175,10 @@ The probe loads the library into a repackaged split APK. `libmain.so` gains a `l
 a private test harness
 ```
 
-Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`.
+Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`, protolog census, eight frame hooks, 480 calls.
 
 
-Arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush.
+Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
 
 The first instruction is classified before patching:
 
@@ -154,7 +188,7 @@ The first instruction is classified before patching:
 - stack setup and other plain instructions: copied
 - `ADR`, `ADRP`, `LDR` literal, conditional branches, `CBZ`, `TBZ`: refused with `HookUnsupported`
 
-Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` hooks installed, 479 detour calls in eight seconds, hooks removed cleanly.
+Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` method pointer hooks installed, 480 detour calls in eight seconds, hooks removed cleanly, six consecutive runs stable.
 
 Prologue distribution from 4000 methods in `Assembly-CSharp.dll` on Android 17 arm64:
 
@@ -212,7 +246,10 @@ src/Image.zig              image enumeration
 src/Hooks.zig              typed hooks, slots, method entry hooks
 src/platform.zig           platform constants
 src/arm64.zig              arm64 instruction classification
-src/backend/minhook.zig    hook backend
+src/backend/minhook.zig    Windows x64 hook backend
+src/backend/arm64.zig      AArch64 hook backend
+src/Elf.zig                ELF symbol resolver
+src/android.zig            Android loader
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set
@@ -445,5 +482,6 @@ Version: `abi_version` in `src/c.zig`. Increment on incompatible ABI change.
 zig-out/shared/z-il2cpp-windows-x86_64.pe
 zig-out/shared/z-il2cpp-linux-x86_64.so
 zig-out/shared/z-il2cpp-linux-aarch64.so
+z-il2cpp-android-arm64.so
 zig-out/shared/manifest.json
 ```

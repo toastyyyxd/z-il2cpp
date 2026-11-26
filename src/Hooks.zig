@@ -13,6 +13,14 @@ pub fn init() Error!void {
     try Backend.init();
 }
 
+pub fn supportsMethodPointerHooks() bool {
+    return Backend.supportsMethodPointer();
+}
+
+pub fn usesMemoryPatch() bool {
+    return Backend.usesMemoryPatch();
+}
+
 pub fn deinit() Error!void {
     try Backend.deinit();
 }
@@ -23,20 +31,42 @@ pub fn Hook(comptime Signature: type) type {
         original: *const Signature,
         active: bool,
         context: ?*anyopaque,
+        prepared: Backend.Prepared,
 
-        pub fn install(target: ?*anyopaque, detour: *const Signature) Error!@This() {
-            const original = try Backend.attach(target, @ptrCast(@constCast(detour)));
+        pub fn prepare(target: ?*anyopaque, detour: *const Signature) Error!@This() {
+            const prepared = try Backend.prepare(target, @ptrCast(@constCast(detour)));
             return .{
                 .target = target,
-                .original = @ptrCast(@alignCast(original)),
-                .active = true,
+                .original = @ptrCast(@alignCast(prepared.original)),
+                .active = false,
                 .context = null,
+                .prepared = prepared,
             };
         }
 
+        pub fn activate(self: *@This()) Error!void {
+            if (self.active) return;
+            try Backend.activate(self.prepared);
+            self.active = true;
+        }
+
+        pub fn cancel(self: *@This()) void {
+            if (self.active) return;
+            Backend.cancel(self.prepared);
+        }
+
+        pub fn install(target: ?*anyopaque, detour: *const Signature) Error!@This() {
+            var hook = try prepare(target, detour);
+            errdefer hook.cancel();
+            try hook.activate();
+            return hook;
+        }
+
         pub fn installWithContext(target: ?*anyopaque, detour: *const Signature, context: ?*anyopaque) Error!@This() {
-            var hook = try install(target, detour);
+            var hook = try prepare(target, detour);
             hook.context = context;
+            errdefer hook.cancel();
+            try hook.activate();
             return hook;
         }
 
@@ -54,8 +84,15 @@ pub fn Slot(comptime Signature: type) type {
         context: ?*anyopaque = null,
 
         pub fn install(self: *@This(), target: ?*anyopaque, detour: *const Signature, context: ?*anyopaque) Error!void {
-            self.hook = try Hook(Signature).installWithContext(target, detour, context);
+            var hook = try Hook(Signature).prepare(target, detour);
+            hook.context = context;
+            self.hook = hook;
             self.context = context;
+            self.hook.?.activate() catch |err| {
+                self.hook.?.cancel();
+                self.hook = null;
+                return err;
+            };
         }
 
         pub fn installMethod(self: *@This(), method: Method, detour: *const Signature, context: ?*anyopaque) Error!void {
@@ -74,6 +111,47 @@ pub fn Slot(comptime Signature: type) type {
 
         pub fn active(self: *const @This()) bool {
             return self.hook != null;
+        }
+    };
+}
+
+pub fn MethodPointerHook(comptime Signature: type) type {
+    return struct {
+        method: Method,
+        address: usize,
+        original: *const Signature,
+        active: bool,
+
+        pub fn prepare(method: Method, detour: *const Signature) Error!@This() {
+            _ = detour;
+            if (!supportsMethodPointerHooks()) return error.HookUnsupported;
+            const info = @intFromPtr(method.pointer orelse return error.MethodNotFound);
+            const address = info + platform.method_entry_offset;
+            const original = Backend.readPointer(address) orelse return error.HookFailed;
+            return .{
+                .method = method,
+                .address = address,
+                .original = @ptrFromInt(original),
+                .active = false,
+            };
+        }
+
+        pub fn install(method: Method, detour: *const Signature) Error!@This() {
+            var hook = try prepare(method, detour);
+            try hook.activate(detour);
+            return hook;
+        }
+
+        pub fn activate(self: *@This(), detour: *const Signature) Error!void {
+            if (self.active) return;
+            try Backend.writePointer(self.address, @intFromPtr(detour));
+            self.active = true;
+        }
+
+        pub fn detach(self: *@This()) void {
+            if (!self.active) return;
+            Backend.writePointer(self.address, @intFromPtr(self.original)) catch {};
+            self.active = false;
         }
     };
 }

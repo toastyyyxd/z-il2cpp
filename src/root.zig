@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Loader = @import("Loader.zig").Loader;
 pub const Runtime = @import("Runtime.zig").Runtime;
@@ -13,6 +14,8 @@ pub const Error = @import("error.zig").Error;
 pub const Hooks = @import("Hooks.zig");
 pub const platform = @import("platform.zig");
 pub const arm64 = @import("arm64.zig");
+pub const Elf = @import("Elf.zig");
+pub const android = if (builtin.os.tag == .linux and builtin.abi == .android) @import("android.zig") else struct {};
 pub const Exception = @import("Exception.zig").Exception;
 
 test {
