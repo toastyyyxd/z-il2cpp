@@ -56,8 +56,6 @@ python3 scripts/probe.py
 scripts/session.sh stop
 ```
 
-Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a running game.
-
 ## Hooks
 
 The library API is `z_il2cpp.Hooks`. Backends:
@@ -121,8 +119,6 @@ Generic and inflated methods have a different entry ABI. Filter them out before 
 - non-static methods
 - non-generic and non-inflated classes and methods
 
-In-game result: 659887 native detour calls in about 2 seconds, originals executed, game alive, hooks removed cleanly. No JS runs per call.
-
 
 ## Development DLL loop
 
@@ -132,7 +128,7 @@ A normal DLL loaded by the agent. Unique file name per build. No game restart.
 GAME_DIR=/path/to/game scripts/dev-probe.sh
 ```
 
-Iteration: build, copy, load, hook selftest, unload. About 0.26 seconds cached.
+Iteration: build, copy, load, hook selftest, unload.
 
 Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks are removed.
 
@@ -182,7 +178,7 @@ zig build android -Dandroid-log-path=/path/inside/the/app/zil2cpp-log.txt
 ```
 
 Load the probe into a debuggable test build of your own app, then read the log.
-Expected: width, prologue census, eight frame hooks, hundreds of detour calls, hooks removed, process alive.
+Expected: probe writes its result and the process stays alive.
 
 ## Android arm64
 
@@ -210,7 +206,7 @@ Symbol lookup uses `/proc/self/maps` and the ELF dynamic table. The module handl
 
 The probe is loaded into a debuggable test build of your own app. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. The log path is selected at build time with `-Dandroid-log-path=...`.
 
-Device: Android 17, arm64-v8a, adb, no root. Verified result: width, prologue census, eight frame hooks, about 480 detour calls in eight seconds, six consecutive runs stable.
+Validated on arm64 Android without root: native export hooks, method pointer hooks, and frame hooks.
 
 Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
 
@@ -224,24 +220,11 @@ The first instruction is classified before patching:
 
 Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer.
 
-Prologue distribution from 4000 methods in `Assembly-CSharp.dll` on Android 17 arm64:
-
-```
-plain   3859
-B         79
-CBZ       34
-ADRP      23
-TBZ        5
-BL, BTI, B.cond, LDR literal, ADR: 0
-```
-
-All eight sampled `Update` methods were plain. Unsupported forms are about 1.6 percent of all methods and are refused. Eight `Update` method pointer hooks installed, 480 detour calls in eight seconds, hooks removed cleanly, six consecutive runs stable.
+Prologue census: most entries are plain. Relative branches, PC-relative loads, `ADR`, `ADRP`, `LDR` literal, and conditional branches are refused with `HookUnsupported`.
 
 Native function hooks patch through `/proc/self/mem` first. Page protection is not changed on that path. The `mprotect` RWX fallback is used only when the memory write fails.
 
 `Hooks` selects the backend by target: MinHook on Windows x64, inline x86_64 on Linux x86_64, inline arm64 on AArch64, stub elsewhere. Managed hooks use method pointer replacement where the backend supports it.
-
-Next for AArch64: PC-relative prologue relocation if a game needs it.
 
 ## Linux
 
@@ -253,26 +236,7 @@ Test target: a Unity IL2CPP build.
 LD_PRELOAD=$PWD/zig-out/linux/libzil2cpp_probe.so ./game.x86_64 -batchmode -nographics
 ```
 
-Headless `-batchmode -nographics` result:
-
-```
-width=640
-code hook calls=1
-method hook calls=1 before=640 after=640
-frames installed=32 failures=5 calls=0
-```
-
-Headless batch mode does not run the player loop, so frame hooks install but Update never fires. Windowed on X11/OpenGL:
-
-```
-width=2560
-code hook calls=1
-method hook calls=1 before=2560 after=2560
-frames installed=32 failures=5 calls=79521
-done
-```
-
-All three hook paths are validated on Linux x86_64: native exports, managed method pointer hooks, and managed Update frame hooks.
+Headless batch mode installs frame hooks but does not run the player loop. A windowed run exercises all three paths: native exports, managed method pointer hooks, and managed Update frame hooks.
 
 `zil2cpp.linux` provides `waitForLibrary`, `loader`, `symbol`, `resolveSymbol`, and `findLibrary`. The ELF resolver handles both relative and pre-relocated dynamic pointers, which glibc uses.
 
@@ -294,7 +258,7 @@ GAME_DIR=/path/to/game scripts/native-loader.sh
 
 Requirements: `winhttp_orig.dll` in the game directory. Write access to the game directory. No gadget, no agent script, no JS.
 
-In-game result: about 5 seconds end to end. Width 1914. 8 Update hooks. Hundreds of thousands of native frame calls in three seconds. No Frida module is loaded.
+In-game result: the mod starts without Frida, installs frame hooks, and writes the result file.
 
 Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it runs and bootstraps from the exact `onLeave`. The timeout fallback remains for environments where the DLL loads late.
 
