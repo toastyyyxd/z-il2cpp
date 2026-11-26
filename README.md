@@ -211,7 +211,6 @@ The probe is loaded into a debuggable test build of your own app. A constructor 
 
 Device: Android 17, arm64-v8a, adb, no root. Verified result: width, prologue census, eight frame hooks, about 480 detour calls in eight seconds, six consecutive runs stable.
 
-
 Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
 
 The first instruction is classified before patching:
