@@ -1,7 +1,13 @@
+const builtin = @import("builtin");
 const Method = @import("Method.zig").Method;
 const Error = @import("error.zig").Error;
 const platform = @import("platform.zig");
-const Backend = @import("backend/minhook.zig");
+const Backend = if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64)
+    @import("backend/minhook.zig")
+else if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .linux)
+    @import("backend/arm64.zig")
+else
+    @import("backend/stub.zig");
 
 pub fn init() Error!void {
     try Backend.init();

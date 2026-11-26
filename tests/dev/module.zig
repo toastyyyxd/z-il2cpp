@@ -66,6 +66,10 @@ fn errorCode(err: Error) i32 {
         error.IndexOutOfBounds => -25,
         error.SizeMismatch => -26,
         error.GenericMethodNotSupported => -27,
+        error.HookUnsupported => -28,
+        error.HookNoMemory => -29,
+        error.HookProtectFailed => -30,
+        error.HookWriteFailed => -31,
     };
 }
 

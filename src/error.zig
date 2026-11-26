@@ -26,4 +26,8 @@ pub const Error = error{
     IndexOutOfBounds,
     SizeMismatch,
     GenericMethodNotSupported,
+    HookUnsupported,
+    HookNoMemory,
+    HookProtectFailed,
+    HookWriteFailed,
 };

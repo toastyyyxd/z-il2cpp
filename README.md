@@ -144,7 +144,11 @@ a private test harness
 Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`.
 
 
-Next: arm64 inline hook backend for `Update` hooks.
+Arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer.
+
+`Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere.
+
+Next: frame hooks for `Update` methods on Android.
 
 ## Native loader
 
@@ -386,6 +390,10 @@ Error codes.
 -25 index out of bounds
 -26 element size mismatch
 -27 generic method not supported
+-28 hook unsupported on this target
+-29 near trampoline page unavailable
+-30 page protection failed
+-31 instruction patch failed
 -16 virtual method not supported
 -17 invalid parameter count
 ```

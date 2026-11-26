@@ -4,6 +4,36 @@ const zil2cpp = @import("z_il2cpp");
 
 const Runtime = zil2cpp.Runtime;
 const Loader = zil2cpp.Loader;
+const Hooks = zil2cpp.Hooks;
+
+const DomainSignature = fn () callconv(.c) ?*anyopaque;
+
+var domain_hook: ?Hooks.Hook(DomainSignature) = null;
+var domain_calls: usize = 0;
+
+fn domainDetour() callconv(.c) ?*anyopaque {
+    domain_calls += 1;
+    return domain_hook.?.original();
+}
+
+fn hookTest() void {
+    const raw = getProcAddress(il2cpp_handle, "il2cpp_domain_get") orelse {
+        logText("hook: missing symbol");
+        return;
+    };
+    const function: *const DomainSignature = @ptrCast(@alignCast(raw));
+    const before = function();
+    domain_calls = 0;
+    var hook = Hooks.Hook(DomainSignature).install(raw, &domainDetour) catch |err| {
+        logFmt("hook: install failed {s}", .{@errorName(err)});
+        return;
+    };
+    domain_hook = hook;
+    const after = function();
+    domain_hook = null;
+    hook.detach();
+    logFmt("hook: calls={d} before={x} after={x}", .{ domain_calls, @intFromPtr(before), @intFromPtr(after) });
+}
 
 const ELF_MAGIC = [4]u8{ 0x7f, 0x45, 0x4c, 0x46 };
 const PT_LOAD = 1;
@@ -358,6 +388,7 @@ fn worker() void {
         return;
     };
     logFmt("width={d}", .{width});
+    hookTest();
     logText("done");
 }
 
