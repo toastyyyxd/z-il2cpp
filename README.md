@@ -283,6 +283,10 @@ Reusable scripts:
 - `scripts/android-install.sh`: install one or more APKs with adb.
 - `scripts/android-launch.sh`: force-stop, clear logcat, and launch a package.
 - `scripts/android-read-log.sh`: read a file from an application's private data directory.
+- `scripts/windows-deploy.sh`: copy shared artifacts, a Frida gadget, agents, and config into a game directory.
+- `scripts/wine-run.sh`: run a Windows executable under Wine, foreground or background.
+- `scripts/wine-stop.sh`: stop the Wine server for a prefix.
+- `scripts/wait-file.sh`: poll for a result file with a timeout.
 - `scripts/probe.py`: host-side Frida runner. Loads a JS agent, injects constants, and waits for its result.
 
 The acceptance harnesses in `tests/harness/` assume this repo's test games and local Wine/Frida setup. They are not part of the library API.
@@ -326,6 +330,10 @@ scripts/android-inject.sh  APK library injection and signing
 scripts/android-install.sh APK installation
 scripts/android-launch.sh  package launch
 scripts/android-read-log.sh private app file read
+scripts/windows-deploy.sh  copy artifacts, gadget, agents, config
+scripts/wine-run.sh        run a program under Wine
+scripts/wine-stop.sh       stop a Wine prefix
+scripts/wait-file.sh       wait for a result file
 tests/harness/android-probe.sh Android probe acceptance
 scripts/probe.py           Frida host probe runner
 tests/harness/smoke.sh     smoke orchestration

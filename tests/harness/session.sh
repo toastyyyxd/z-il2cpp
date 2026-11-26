@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$REPO_DIR/zig-out/ingame"
 BACKUP="$OUT/config-backup"
 GAME_DIR="${GAME_DIR:?set GAME_DIR}"
@@ -9,7 +9,7 @@ WINEPREFIX="${WINEPREFIX:-$HOME/.cache/wine-test}"
 PORT="${PORT:-27042}"
 
 if [ "${1:-}" = "stop" ]; then
-    WINEPREFIX="$WINEPREFIX" wineserver -k 2>/dev/null || true
+    "$REPO_DIR/scripts/wine-stop.sh" --prefix "$WINEPREFIX"
     if [ -d "$BACKUP" ]; then
         cp "$BACKUP"/* "$GAME_DIR"/ 2>/dev/null || true
         rm -rf "$BACKUP"
@@ -30,11 +30,6 @@ fi
 mkdir -p "$OUT"
 zig build shared
 
-rm -rf "$GAME_DIR/shared"
-mkdir -p "$GAME_DIR/shared"
-cp "$REPO_DIR"/zig-out/shared/* "$GAME_DIR/shared/"
-cp "$FRIDA_GADGET" "$GAME_DIR/frida-gadget.dll"
-
 if [ ! -d "$BACKUP" ]; then
     mkdir -p "$BACKUP"
     for name in frida-gadget.config frida-gadget.config.json; do
@@ -44,19 +39,20 @@ if [ ! -d "$BACKUP" ]; then
     done
 fi
 
-cat > "$GAME_DIR/frida-gadget.config" <<JSON
-{"interaction":{"type":"listen","address":"127.0.0.1","port":$PORT},"runtime":"qjs"}
-JSON
-cp "$GAME_DIR/frida-gadget.config" "$GAME_DIR/frida-gadget.config.json"
+CONFIG="{\"interaction\":{\"type\":\"listen\",\"address\":\"127.0.0.1\",\"port\":$PORT},\"runtime\":\"qjs\"}"
+"$REPO_DIR/scripts/windows-deploy.sh" \
+    --game-dir "$GAME_DIR" \
+    --shared-dir "$REPO_DIR/zig-out/shared" \
+    --gadget "$FRIDA_GADGET" \
+    --frida-config "$CONFIG"
 
-ARGS=""
+RUN_ARGS=(--game-dir "$GAME_DIR" --exe "$GAME_EXE" --prefix "$WINEPREFIX" \
+    --log "$OUT/session.log" --background --dll-override "winhttp=n,b")
 if [ "$HEADED" != "1" ]; then
-    ARGS="-batchmode -nographics"
+    RUN_ARGS+=(--batchmode)
 fi
-
-setsid nohup bash -c 'cd "$1" && exec env WINEPREFIX="$2" WINEDEBUG=-all WINEDLLOVERRIDES="winhttp=n,b" wine "$3" $4 -logFile -' _ "$GAME_DIR" "$WINEPREFIX" "$GAME_EXE" "$ARGS" > "$OUT/session.log" 2>&1 < /dev/null &
-echo $! > "$OUT/session.pid"
-disown
+"$REPO_DIR/scripts/wine-run.sh" "${RUN_ARGS[@]}" > "$OUT/session.pid"
+disown 2>/dev/null || true
 
 for _ in $(seq 1 120); do
     if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then

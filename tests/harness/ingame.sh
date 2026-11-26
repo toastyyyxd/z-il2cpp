@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GAME_DIR="${GAME_DIR:?set GAME_DIR to a game directory with the winhttp proxy deployed}"
-FRIDA_GADGET="${FRIDA_GADGET:?set FRIDA_GADGET to a windows gadget dll, version 17.25 or newer}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+GAME_DIR="${GAME_DIR:?set GAME_DIR to a game directory}"
+FRIDA_GADGET="${FRIDA_GADGET:?set FRIDA_GADGET to a windows gadget dll}"
 GAME_EXE="${GAME_EXE:-game.exe}"
 WINEPREFIX="${WINEPREFIX:-$HOME/.cache/wine-test}"
 TIMEOUT="${TIMEOUT:-120}"
 OUT="$REPO_DIR/zig-out/ingame"
 
-if [ ! -x "$(command -v wine)" ]; then
-    echo "ingame: wine not found" >&2
-    exit 1
-fi
-
 mkdir -p "$OUT"
 zig build shared
-
-rm -rf "$GAME_DIR/shared"
-mkdir -p "$GAME_DIR/shared" "$GAME_DIR/mods"
-cp "$REPO_DIR"/zig-out/shared/* "$GAME_DIR/shared/"
-cp "$REPO_DIR/tests/ingame/agent.js" "$GAME_DIR/mods/ingame.js"
-cp "$FRIDA_GADGET" "$GAME_DIR/frida-gadget.dll"
 
 for name in frida-gadget.config frida-gadget.config.json; do
     if [ -f "$GAME_DIR/$name" ]; then
@@ -35,44 +24,26 @@ restore() {
             cp "$OUT/$name.bak" "$GAME_DIR/$name"
         fi
     done
+    "$REPO_DIR/scripts/wine-stop.sh" --prefix "$WINEPREFIX"
 }
 trap restore EXIT
 
-cat > "$GAME_DIR/frida-gadget.config" <<'JSON'
-{"interaction":{"type":"script","path":"mods/ingame.js"},"runtime":"qjs"}
-JSON
-cp "$GAME_DIR/frida-gadget.config" "$GAME_DIR/frida-gadget.config.json"
+"$REPO_DIR/scripts/windows-deploy.sh" \
+    --game-dir "$GAME_DIR" \
+    --shared-dir "$REPO_DIR/zig-out/shared" \
+    --gadget "$FRIDA_GADGET" \
+    --agent "$REPO_DIR/tests/ingame/agent.js:mods/ingame.js" \
+    --frida-config '{"interaction":{"type":"script","path":"mods/ingame.js"},"runtime":"qjs"}'
 
 rm -f "$GAME_DIR/probe-result.json"
-(
-    cd "$GAME_DIR"
-    WINEPREFIX="$WINEPREFIX" WINEDEBUG=-all WINEDLLOVERRIDES="winhttp=n,b" \
-        wine "$GAME_EXE" -batchmode -nographics -logFile - > "$OUT/game.log" 2>&1
-) &
-game_pid=$!
+"$REPO_DIR/scripts/wine-run.sh" \
+    --game-dir "$GAME_DIR" --exe "$GAME_EXE" --prefix "$WINEPREFIX" \
+    --log "$OUT/game.log" --background --batchmode --dll-override "winhttp=n,b" >/dev/null
 
-for _ in $(seq 1 "$TIMEOUT"); do
-    if [ -f "$GAME_DIR/probe-result.json" ]; then
-        break
-    fi
-    sleep 1
-done
-
-kill "$game_pid" 2>/dev/null || true
-WINEPREFIX="$WINEPREFIX" wineserver -k 2>/dev/null || true
-
-if [ ! -f "$GAME_DIR/probe-result.json" ]; then
-    echo "ingame: no probe-result.json" >&2
-    tail -20 "$OUT/game.log" >&2 || true
-    exit 1
-fi
+"$REPO_DIR/scripts/wait-file.sh" --path "$GAME_DIR/probe-result.json" --timeout "$TIMEOUT"
+"$REPO_DIR/scripts/wine-stop.sh" --prefix "$WINEPREFIX"
 
 cp "$GAME_DIR/probe-result.json" "$OUT/probe-result.json"
 cat "$OUT/probe-result.json"
-
-if ! grep -q '"ok": true' "$OUT/probe-result.json"; then
-    echo "ingame: probe failed" >&2
-    exit 1
-fi
-
+grep -q '"ok": true' "$OUT/probe-result.json" || { echo "ingame: probe failed" >&2; exit 1; }
 echo "ingame: PASS"
