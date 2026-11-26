@@ -91,7 +91,7 @@ scripts/hooks-smoke.sh
 
 MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
-On Windows x64, managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build. On AArch64, use `MethodPointerHook` for managed methods.
+On Windows x64, managed method hooks use the code pointer at offset 0 of `MethodInfo`. On AArch64 and Linux x86_64, use `MethodPointerHook` for managed methods.
 
 `z_il2cpp.Hooks` provides typed hooks.
 
@@ -218,10 +218,6 @@ The first instruction is classified before patching:
 - stack setup and other plain instructions: copied
 - `ADR`, `ADRP`, `LDR` literal, conditional branches, `CBZ`, `TBZ`: refused with `HookUnsupported`
 
-Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer.
-
-Prologue census: most entries are plain. Relative branches, PC-relative loads, `ADR`, `ADRP`, `LDR` literal, and conditional branches are refused with `HookUnsupported`.
-
 Native function hooks patch through `/proc/self/mem` first. Page protection is not changed on that path. The `mprotect` RWX fallback is used only when the memory write fails.
 
 `Hooks` selects the backend by target: MinHook on Windows x64, inline x86_64 on Linux x86_64, inline arm64 on AArch64, stub elsewhere. Managed hooks use method pointer replacement where the backend supports it.
@@ -229,8 +225,6 @@ Native function hooks patch through `/proc/self/mem` first. Page protection is n
 ## Linux
 
 The Linux x86_64 probe is `zig build linux-probe`. It builds `zig-out/linux/libzil2cpp_probe.so` and is loaded with `LD_PRELOAD`. A constructor starts a pthread, waits for `GameAssembly.so`, opens it with `zil2cpp.linux.loader`, reads `UnityEngine.Screen.get_width`, then exercises hooks.
-
-Test target: a Unity IL2CPP build.
 
 ```sh
 LD_PRELOAD=$PWD/zig-out/linux/libzil2cpp_probe.so ./game.x86_64 -batchmode -nographics
@@ -250,15 +244,13 @@ No Frida. The game loads the mod DLL itself.
 - `tests/native/module.zig`: native mod DLL. Exports `zil2cpp_start`.
 - A thread in the proxy DllMain loads `zil2cpp.dll` and calls `zil2cpp_start`.
 - The mod DLL waits for `GameAssembly.dll`, hooks `il2cpp_init`, falls back after a timeout, then starts a bootstrap thread.
-- Bootstrap: runtime init, read `Screen.width`, install Update hooks, wait three seconds, write `zil2cpp-native-result.json`.
+- Bootstrap: runtime init, read `Screen.width`, install Update hooks, write `zil2cpp-native-result.json`.
 
 ```sh
 GAME_DIR=/path/to/game scripts/native-loader.sh
 ```
 
 Requirements: `winhttp_orig.dll` in the game directory. Write access to the game directory. No gadget, no agent script, no JS.
-
-In-game result: the mod starts without Frida, installs frame hooks, and writes the result file.
 
 Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it runs and bootstraps from the exact `onLeave`. The timeout fallback remains for environments where the DLL loads late.
 
