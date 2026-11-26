@@ -47,12 +47,33 @@ pub const Class = struct {
         return .{ .runtime = self.runtime, .pointer = pointer };
     }
 
+    pub fn fields(self: Class) FieldIterator {
+        return .{ .runtime = self.runtime, .class_pointer = self.pointer };
+    }
+
+    pub const FieldIterator = struct {
+        runtime: Runtime,
+        class_pointer: ?*anyopaque,
+        iterator: ?*anyopaque = null,
+
+        pub fn next(self: *FieldIterator) ?Field {
+            const pointer = self.runtime.exports.class_get_fields(self.class_pointer, &self.iterator) orelse return null;
+            return .{
+                .runtime = self.runtime,
+                .pointer = pointer,
+                .offset = self.runtime.exports.field_get_offset(pointer),
+                .is_static = (self.runtime.exports.field_get_flags(pointer) & 0x0010) != 0,
+            };
+        }
+    };
+
     pub fn findField(self: Class, field_name: [:0]const u8) Error!Field {
         if (self.runtime.cache.findField(self.pointer, field_name)) |pointer| {
             return .{
                 .runtime = self.runtime,
                 .pointer = pointer,
                 .offset = self.runtime.exports.field_get_offset(pointer),
+                .is_static = (self.runtime.exports.field_get_flags(pointer) & 0x0010) != 0,
             };
         }
         const class_pointer = self.pointer orelse return error.ClassNotFound;
@@ -62,6 +83,7 @@ pub const Class = struct {
             .runtime = self.runtime,
             .pointer = pointer,
             .offset = self.runtime.exports.field_get_offset(pointer),
+            .is_static = (self.runtime.exports.field_get_flags(pointer) & 0x0010) != 0,
         };
     }
 };

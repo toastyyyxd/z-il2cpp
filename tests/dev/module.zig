@@ -135,6 +135,12 @@ fn selftestVirtual(runtime_value: Runtime) i32 {
     return 1;
 }
 
+export fn dev_selftest_static() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestStatic(runtime_value);
+}
+
 export fn dev_selftest_virtual() callconv(.c) i32 {
     Hooks.init() catch return -1;
     const runtime_value = runtime() catch |err| return errorCode(err);
@@ -143,6 +149,37 @@ export fn dev_selftest_virtual() callconv(.c) i32 {
 
 export fn dev_virtual_calls() callconv(.c) u32 {
     return virtual_calls;
+}
+
+fn selftestStatic(runtime_value: Runtime) i32 {
+    const string_class = runtime_value.findClass("System", "String") catch return -50;
+    const empty_field = string_class.findField("Empty") catch return -51;
+    if (!empty_field.isStatic()) return -52;
+    const value = empty_field.readStatic(?*anyopaque) catch return -53;
+    if (value == null) return -54;
+    const text = zil2cpp.String{ .runtime = runtime_value, .pointer = value };
+    if ((text.length() catch return -55) != 0) return -56;
+
+    const image = runtime_value.findImage("Assembly-CSharp.dll") catch return -57;
+    var class_index: usize = 0;
+    while (class_index < image.classCount()) : (class_index += 1) {
+        const klass = image.classAt(class_index) catch continue;
+        if (klass.isGeneric() or klass.isInflated()) continue;
+        var fields = klass.fields();
+        while (fields.next()) |field| {
+            if (!field.isStatic()) continue;
+            const flags = runtime_value.exports.field_get_flags(field.pointer);
+            if ((flags & 0x0060) != 0) continue;
+            const type_name = field.typeName() orelse continue;
+            if (!std.mem.eql(u8, std.mem.span(type_name), "System.Int32")) continue;
+            const original = field.readStatic(i32) catch continue;
+            field.writeStatic(@as(i32, original +% 1)) catch continue;
+            const updated = field.readStatic(i32) catch continue;
+            field.writeStatic(original) catch continue;
+            if (updated == original +% 1) return 1;
+        }
+    }
+    return -58;
 }
 
 export fn dev_selftest_width() callconv(.c) i32 {
