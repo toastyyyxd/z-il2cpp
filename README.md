@@ -152,7 +152,7 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 ## Limitations
 
 - Native code hooks have no thread quiescence. Install them at startup. Another core can keep executing the old instruction until its instruction cache is invalidated. Trampoline pages stay mapped so the old path remains valid.
-- Stub pages are retained after detach because other threads can still be inside them. Repeated native hook install and removal leaks one page per cycle.
+- Detached x86_64 hooks leave their wrapper and trampoline mapped. The entry stays patched and calls the trampoline after detach. Slots and pages are not reused.
 - MethodInfo layout, GC handle size, and array header size are validated against Unity 6000.3 and 2022.3 builds. Probe each new build before relying on them.
 - Code patches and MinHook are visible to anti-cheat tooling. Do not use this in protected games.
 - Linux x86_64 is validated in game, including native code hooks and managed method pointer hooks. Linux aarch64 is not validated.
@@ -234,7 +234,7 @@ Headless batch mode installs frame hooks but does not run the player loop. A win
 
 `zil2cpp.linux` provides `waitForLibrary`, `loader`, `symbol`, `resolveSymbol`, and `findLibrary`. The ELF resolver handles both relative and pre-relocated dynamic pointers, which glibc uses.
 
-The x86_64 inline backend patches five bytes at the function entry through `/proc/self/mem`, builds a trampoline in a nearby mapping, relocates RIP-relative operands, and supports entry thunks that begin with `jmp rel32` or `jmp rel8`. Other relative branches in the overwritten prologue are refused with `HookUnsupported`.
+The x86_64 inline backend patches the entry with an aligned 8-byte atomic store, points it at a permanent wrapper, and puts the wrapper and trampoline in pooled executable pages or code caves. Detach switches the wrapper to the trampoline through a writable pointer. It relocates RIP-relative operands and supports entry thunks that begin with `jmp rel32` or `jmp rel8`. Other relative branches are refused with `HookUnsupported`.
 
 ## Native loader
 

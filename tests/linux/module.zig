@@ -148,7 +148,7 @@ fn worker() void {
         logFmt("invoke failed: {s}\n", .{@errorName(err)});
         return;
     };
-    Hooks.setCodeCaves(false, 0);
+    Hooks.setCodeCaves(true, 0x9e3779b97f4a7c15);
     logFmt("width={d}\n", .{width});
     hookTests(screen);
     frameTest(runtime);

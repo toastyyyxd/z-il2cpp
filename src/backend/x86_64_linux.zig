@@ -20,6 +20,7 @@ const Entry = struct {
     patch_address: usize = 0,
     slot_address: usize = 0,
     trampoline_address: usize = 0,
+    data_pointer: usize = 0,
     slot_offset: usize = 0,
     page: usize = 0,
     kind: SlotKind = .unused,
@@ -40,8 +41,14 @@ pub const Prepared = struct {
     original: *const anyopaque,
 };
 
+const DataPage = struct {
+    address: usize = 0,
+    used: std.atomic.Value(u16) = .init(0),
+};
+
 var entries: [max_hooks]Entry = @splat(.{});
 var pages: [max_pages]Page = @splat(.{});
+var data_pages: [max_pages]DataPage = @splat(.{});
 var maps_storage: [maps_size]u8 = undefined;
 
 const Cave = struct { start: usize, length: usize };
@@ -60,6 +67,11 @@ pub fn deinit() Error!void {
         if (page.address == 0) continue;
         _ = linux.munmap(@ptrFromInt(page.address), page_size);
         if (page.fd >= 0) _ = linux.close(page.fd);
+        page.* = .{};
+    }
+    for (&data_pages) |*page| {
+        if (page.address == 0) continue;
+        _ = linux.munmap(@ptrFromInt(page.address), page_size);
         page.* = .{};
     }
 }
@@ -98,8 +110,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
     const slot = freeSlot() orelse return error.HookFailed;
     entries[slot] = .{};
 
-    const patch_offset: usize = if (std.mem.eql(u8, slice(target, 4), "\xF3\x0F\x1E\xFA")) 4 else 0;
-    const patch_address = target + patch_offset;
+    const patch_address = target;
 
     var copied: usize = 0;
     var relative_seen = false;
@@ -128,8 +139,10 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
 
     const allocation = try acquireSlot(target, patch_address, copied);
     errdefer releaseSlot(allocation);
+    const data_pointer = try acquireDataPointer(target);
+    @atomicStore(u64, @as(*u64, @ptrFromInt(data_pointer)), detour, .release);
 
-    try writeHookCode(allocation, patch_address, copied, detour, absolute_destination);
+    try writeHookCode(allocation, data_pointer, patch_address, copied, absolute_destination);
 
     var patch: [patch_size]u8 = undefined;
     patch[0] = 0xE9;
@@ -142,6 +155,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
         .patch_address = patch_address,
         .slot_address = allocation.address,
         .trampoline_address = allocation.trampoline,
+        .data_pointer = data_pointer,
         .slot_offset = allocation.offset,
         .page = allocation.page,
         .kind = allocation.kind,
@@ -155,7 +169,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
 pub fn activate(prepared: Prepared) Error!void {
     const entry = &entries[prepared.slot];
     if (entry.active) return;
-    writeBytes(entry.patch_address, &entry.patch_bytes) catch return error.HookWriteFailed;
+    writeEntryPatch(entry.patch_address, &entry.patch_bytes) catch return error.HookWriteFailed;
     entry.active = true;
 }
 
@@ -176,8 +190,8 @@ pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
     for (&entries) |*entry| {
         if (entry.target != target) continue;
-        if (entry.active) {
-            writeBytes(entry.patch_address, &entry.original_bytes) catch {};
+        if (entry.active and entry.data_pointer != 0) {
+            @atomicStore(u64, @as(*u64, @ptrFromInt(entry.data_pointer)), entry.trampoline_address, .release);
         }
         releaseSlot(.{
             .address = entry.slot_address,
@@ -269,11 +283,13 @@ fn createPoolPage(target: usize) Error!Page {
     return error.HookNoMemory;
 }
 
-fn writeHookCode(allocation: Allocation, patch_address: usize, copied: usize, detour: usize, absolute_destination: ?usize) Error!void {
+fn writeHookCode(allocation: Allocation, data_pointer: usize, patch_address: usize, copied: usize, absolute_destination: ?usize) Error!void {
     if (allocation.kind == .cave) {
         var stub: [16]u8 = @splat(0);
         @memcpy(stub[0..6], &[_]u8{ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 });
-        writeIntToSlice(&stub, 6, detour);
+        const displacement = @as(i64, @intCast(data_pointer)) - @as(i64, @intCast(allocation.address + 6));
+        if (displacement < std.math.minInt(i32) or displacement > std.math.maxInt(i32)) return error.HookUnsupported;
+        writeIntToSliceAt(&stub, 2, @as(i32, @intCast(displacement)));
         writeBytes(allocation.address, &stub) catch return error.HookWriteFailed;
 
         var trampoline: [48]u8 = @splat(0);
@@ -287,7 +303,9 @@ fn writeHookCode(allocation: Allocation, patch_address: usize, copied: usize, de
     if (allocation.page >= max_pages or pages[allocation.page].fd < 0) return error.HookWriteFailed;
     var image: [slot_size]u8 = @splat(0);
     @memcpy(image[0..6], &[_]u8{ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 });
-    writeIntToSlice(&image, 6, detour);
+    const displacement = @as(i64, @intCast(data_pointer)) - @as(i64, @intCast(allocation.address + 6));
+    if (displacement < std.math.minInt(i32) or displacement > std.math.maxInt(i32)) return error.HookUnsupported;
+    writeIntToSliceAt(&image, 2, @as(i32, @intCast(displacement)));
     try fillTrampoline(image[trampoline_offset..], allocation.trampoline, patch_address, copied, absolute_destination);
     const written = linux.pwrite(pages[allocation.page].fd, &image, slot_size, @intCast(allocation.offset));
     if (@as(isize, @bitCast(written)) != @as(isize, @intCast(slot_size))) return error.HookWriteFailed;
@@ -465,6 +483,49 @@ fn memoryPatchAvailable() bool {
         memory_fd = if (@as(isize, @bitCast(fd)) >= 0) @intCast(fd) else -1;
     }
     return memory_fd >= 0;
+}
+
+fn acquireDataPointer(target: usize) Error!usize {
+    for (&data_pages) |*page| {
+        if (page.address == 0 or !near(page.address, target)) continue;
+        const index = page.used.fetchAdd(1, .monotonic);
+        if (index >= page_size / 8) {
+            _ = page.used.fetchSub(1, .monotonic);
+            continue;
+        }
+        return page.address + @as(usize, index) * 8;
+    }
+    for (&data_pages) |*page| {
+        if (page.address != 0) continue;
+        var attempt: usize = 0;
+        while (attempt < 192) : (attempt += 1) {
+            const distance = (@as(usize, 1) << 20) + attempt * (@as(usize, 1) << 24);
+            const candidate = if (attempt % 2 == 0) target -% distance else target +% distance;
+            const hint = candidate & ~(page_size - 1);
+            const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+            const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
+            if (@as(isize, @bitCast(result)) < 0) continue;
+            if (!near(result, target)) {
+                _ = linux.munmap(@ptrFromInt(result), page_size);
+                continue;
+            }
+            page.* = .{ .address = result, .used = .init(1) };
+            return result;
+        }
+        return error.HookNoMemory;
+    }
+    return error.HookNoMemory;
+}
+
+fn writeEntryPatch(address: usize, patch: *const [patch_size]u8) Error!void {
+    if ((address & 7) != 0) return error.HookUnsupported;
+    const page = address & ~(page_size - 1);
+    const word_pointer: *u64 = @ptrFromInt(address);
+    var word = word_pointer.*;
+    @memcpy(std.mem.asBytes(&word)[0..patch_size], patch);
+    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .WRITE = true }))) < 0) return error.HookProtectFailed;
+    @atomicStore(u64, word_pointer, word, .release);
+    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .EXEC = true }))) < 0) return error.HookProtectFailed;
 }
 
 fn writeBytes(address: usize, bytes: []const u8) Error!void {
