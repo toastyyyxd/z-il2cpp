@@ -5,6 +5,8 @@ const zil2cpp = @import("z_il2cpp");
 const Runtime = zil2cpp.Runtime;
 const Loader = zil2cpp.Loader;
 const Hooks = zil2cpp.Hooks;
+const arm64 = zil2cpp.arm64;
+const frames = @import("frames");
 
 const DomainSignature = fn () callconv(.c) ?*anyopaque;
 
@@ -14,6 +16,33 @@ var domain_calls: usize = 0;
 fn domainDetour() callconv(.c) ?*anyopaque {
     domain_calls += 1;
     return domain_hook.?.original();
+}
+
+fn frameProbe(runtime_value: Runtime) void {
+    const image = runtime_value.findImage("Assembly-CSharp.dll") catch {
+        logText("frames: no image");
+        return;
+    };
+    const class_count = image.classCount();
+    var seen: usize = 0;
+    var index: usize = 0;
+    while (index < class_count and seen < frames.limit) : (index += 1) {
+        const klass = image.classAt(index) catch continue;
+        if (!klass.derivesFromName("MonoBehaviour")) continue;
+        if (klass.isGeneric() or klass.isInflated()) continue;
+        const method = klass.findMethod("Update", 0) catch continue;
+        if (method.isStatic() or method.isGeneric() or method.isInflated()) continue;
+        const address = (method.entryPoint() catch continue) orelse continue;
+        const instruction = @as(*const volatile u32, @ptrFromInt(@intFromPtr(address))).*;
+        logFmt("frames: {d} word={x} kind={s}", .{ seen, instruction, @tagName(arm64.classify(instruction)) });
+        seen += 1;
+    }
+    const installed = frames.install(runtime_value, frames.limit);
+    logFmt("frames: installed={d}", .{installed});
+    sleepMilliseconds(8000);
+    logFmt("frames: calls={d}", .{frames.count()});
+    frames.remove();
+    logText("frames: removed");
 }
 
 fn hookTest() void {
@@ -389,6 +418,7 @@ fn worker() void {
     };
     logFmt("width={d}", .{width});
     hookTest();
+    frameProbe(runtime);
     logText("done");
 }
 

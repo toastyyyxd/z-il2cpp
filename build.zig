@@ -219,6 +219,14 @@ pub fn build(b: *std.Build) void {
         .link_libc = false,
     });
     android_module.addImport("z_il2cpp", android_lib);
+    const android_frames = b.createModule(.{
+        .root_source_file = b.path("tests/support/frames.zig"),
+        .target = android_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = false,
+    });
+    android_frames.addImport("z_il2cpp", android_lib);
+    android_module.addImport("frames", android_frames);
     const android_artifact = b.addLibrary(.{
         .name = "zil2cpp",
         .linkage = .dynamic,

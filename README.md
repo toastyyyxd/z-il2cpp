@@ -144,11 +144,21 @@ a private test harness
 Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`.
 
 
-Arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer.
+Arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush.
+
+The first instruction is classified before patching:
+
+- `B`: absolute relocation
+- `BL`: absolute call plus branch to the original return address
+- `BTI`: entry stays intact, patch moves to the second instruction
+- stack setup and other plain instructions: copied
+- `ADR`, `ADRP`, `LDR` literal, conditional branches, `CBZ`, `TBZ`: refused with `HookUnsupported`
+
+Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` hooks installed, 482 detour calls in eight seconds, hooks removed cleanly.
 
 `Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere.
 
-Next: frame hooks for `Update` methods on Android.
+Next: PC-relative prologue relocation if a game needs it.
 
 ## Native loader
 
@@ -186,6 +196,7 @@ src/Exception.zig          managed exception detail
 src/Image.zig              image enumeration
 src/Hooks.zig              typed hooks, slots, method entry hooks
 src/platform.zig           platform constants
+src/arm64.zig              arm64 instruction classification
 src/backend/minhook.zig    hook backend
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion

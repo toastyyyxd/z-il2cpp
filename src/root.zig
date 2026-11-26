@@ -12,6 +12,7 @@ pub const String = @import("String.zig").String;
 pub const Error = @import("error.zig").Error;
 pub const Hooks = @import("Hooks.zig");
 pub const platform = @import("platform.zig");
+pub const arm64 = @import("arm64.zig");
 pub const Exception = @import("Exception.zig").Exception;
 
 test {

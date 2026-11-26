@@ -1,16 +1,16 @@
 const std = @import("std");
 const linux = std.os.linux;
 const Error = @import("../error.zig").Error;
+const arm64 = @import("../arm64.zig");
 
 const page_size: usize = 4096;
 const max_hooks = 64;
-const near_limit: usize = 120 * 1024 * 1024;
+const near_limit: usize = 124 * 1024 * 1024;
 const stub_offset: usize = 0;
 const trampoline_offset: usize = 0x100;
-const literal_offset: usize = 0x180;
 
 const Entry = struct {
-    target: usize = 0,
+    patch_address: usize = 0,
     stub_page: usize = 0,
     original_instruction: u32 = 0,
     active: bool = false,
@@ -25,26 +25,35 @@ pub fn attach(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!*c
     const target = @intFromPtr(target_pointer orelse return error.HookFailed);
     const detour = @intFromPtr(detour_pointer orelse return error.HookFailed);
     const slot = freeSlot() orelse return error.HookFailed;
-    const original_instruction = readInstruction(target);
+
+    const first = readInstruction(target);
+    const patch_offset: usize = if (arm64.classify(first) == .bti) 4 else 0;
+    const patch_address = target + patch_offset;
+    const instruction = readInstruction(patch_address);
+    const kind = arm64.classify(instruction);
+    const supported = arm64.isCopyable(kind) or kind == .branch_b or kind == .branch_bl;
+    if (!supported) return error.HookUnsupported;
 
     const stub_page = allocateNear(target) orelse return error.HookNoMemory;
     errdefer _ = linux.munmap(@ptrFromInt(stub_page), page_size);
 
     const trampoline = stub_page + trampoline_offset;
-    buildTrampoline(trampoline, target, original_instruction);
-    var patch_address = detour;
-    if (!fitsBranch(target, detour)) {
+    try buildTrampoline(trampoline, patch_address, instruction, kind);
+    var destination = detour;
+    if (arm64.encodeBranch(patch_address, destination) == null) {
         buildStub(stub_page + stub_offset, detour);
-        patch_address = stub_page + stub_offset;
+        destination = stub_page + stub_offset;
     }
-    if (!fitsBranch(target, patch_address)) return error.HookUnsupported;
+    const patch_instruction = arm64.encodeBranch(patch_address, destination) orelse return error.HookUnsupported;
+
+    flushCache(stub_page, stub_page + page_size);
     if (!protect(stub_page, page_size, .{ .READ = true, .EXEC = true })) return error.HookProtectFailed;
 
-    writeInstruction(target, encodeBranch(target, patch_address)) catch return error.HookWriteFailed;
+    writeInstruction(patch_address, patch_instruction) catch return error.HookWriteFailed;
     entries[slot] = .{
-        .target = target,
+        .patch_address = patch_address,
         .stub_page = stub_page,
-        .original_instruction = original_instruction,
+        .original_instruction = instruction,
         .active = true,
     };
     return @ptrFromInt(trampoline);
@@ -53,8 +62,9 @@ pub fn attach(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!*c
 pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
     for (&entries) |*entry| {
-        if (!entry.active or entry.target != target) continue;
-        writeInstruction(target, entry.original_instruction) catch {};
+        if (!entry.active) continue;
+        if (entry.patch_address != target and entry.patch_address != target + 4) continue;
+        writeInstruction(entry.patch_address, entry.original_instruction) catch {};
         _ = linux.munmap(@ptrFromInt(entry.stub_page), page_size);
         entry.* = .{};
         return;
@@ -74,15 +84,12 @@ fn readInstruction(address: usize) u32 {
 
 fn writeInstruction(address: usize, instruction: u32) !void {
     const page = address & ~(page_size - 1);
-    var restored_exec = true;
     if (!protect(page, page_size, .{ .READ = true, .WRITE = true, .EXEC = true })) {
-        restored_exec = false;
         if (!protect(page, page_size, .{ .READ = true, .WRITE = true })) return error.HookFailed;
     }
     @as(*volatile u32, @ptrFromInt(address)).* = instruction;
     flushCache(address, address + 4);
-    const final: linux.PROT = if (restored_exec) .{ .READ = true, .EXEC = true } else .{ .READ = true, .EXEC = true };
-    if (!protect(page, page_size, final)) return error.HookFailed;
+    if (!protect(page, page_size, .{ .READ = true, .EXEC = true })) return error.HookFailed;
 }
 
 fn protect(address: usize, length: usize, protection: linux.PROT) bool {
@@ -90,19 +97,29 @@ fn protect(address: usize, length: usize, protection: linux.PROT) bool {
     return @as(isize, @bitCast(result)) >= 0;
 }
 
-fn buildTrampoline(trampoline: usize, target: usize, instruction: u32) void {
-    var cursor = trampoline;
-    if (isBranch(instruction)) {
-        const destination = @as(usize, @intCast(@as(i64, @intCast(target)) + branchOffset(instruction)));
-        writeWord(cursor, 0x58000050);
-        writeWord(cursor + 4, 0xD61F0200);
-        writeQuad(cursor + 8, destination);
-        cursor += 16;
-    } else {
-        writeWord(cursor, instruction);
-        cursor += 4;
+fn buildTrampoline(trampoline: usize, patch_address: usize, instruction: u32, kind: arm64.Kind) Error!void {
+    switch (kind) {
+        .plain, .bti => {
+            writeWord(trampoline, instruction);
+            const branch = arm64.encodeBranch(trampoline + 4, patch_address + 4) orelse return error.HookUnsupported;
+            writeWord(trampoline + 4, branch);
+        },
+        .branch_b => {
+            const destination = arm64.branchDestination(instruction, patch_address);
+            writeWord(trampoline, 0x58000050);
+            writeWord(trampoline + 4, 0xD61F0200);
+            writeQuad(trampoline + 8, destination);
+        },
+        .branch_bl => {
+            const destination = arm64.branchDestination(instruction, patch_address);
+            writeWord(trampoline, 0x58000070);
+            writeWord(trampoline + 4, 0xD63F0200);
+            const branch = arm64.encodeBranch(trampoline + 8, patch_address + 4) orelse return error.HookUnsupported;
+            writeWord(trampoline + 8, branch);
+            writeQuad(trampoline + 12, destination);
+        },
+        else => return error.HookUnsupported,
     }
-    writeWord(cursor, encodeBranch(cursor, target + 4));
 }
 
 fn buildStub(stub: usize, destination: usize) void {
@@ -119,41 +136,33 @@ fn writeQuad(address: usize, value: usize) void {
     @as(*volatile u64, @ptrFromInt(address)).* = @intCast(value);
 }
 
-fn encodeBranch(from: usize, to: usize) u32 {
-    const delta = @as(i64, @intCast(to)) - @as(i64, @intCast(from));
-    const words: i32 = @intCast(@divExact(delta, 4));
-    return 0x14000000 | (@as(u32, @bitCast(words)) & 0x03FFFFFF);
-}
-
-fn fitsBranch(from: usize, to: usize) bool {
-    const delta = @as(i64, @intCast(to)) - @as(i64, @intCast(from));
-    const limit = @as(i64, 1) << 27;
-    return delta >= -limit * 4 and delta < limit * 4 and @mod(delta, 4) == 0;
-}
-
-fn isBranch(instruction: u32) bool {
-    return (instruction & 0x7C000000) == 0x14000000;
-}
-
-fn branchOffset(instruction: u32) i64 {
-    var immediate: i64 = @intCast((instruction >> 0) & 0x03FFFFFF);
-    if ((immediate & 0x02000000) != 0) immediate -= 0x04000000;
-    return immediate * 4;
-}
-
 fn allocateNear(target: usize) ?usize {
+    const granularities = [_]usize{ 0x10000, 0x100000 };
+    for (granularities) |granularity| {
+        var attempt: usize = 0;
+        while (attempt < 256) : (attempt += 1) {
+            const distance = granularity * (attempt / 2 + 1);
+            const candidate = if (attempt % 2 == 0) target -% distance else target + distance;
+            const hint = candidate & ~(page_size - 1);
+            const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+            const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
+            if (@as(isize, @bitCast(result)) < 0) continue;
+            const address = result;
+            const offset = if (address > target) address - target else target - address;
+            if (offset < near_limit) return address;
+            _ = linux.munmap(@ptrFromInt(address), page_size);
+            break;
+        }
+    }
     var attempt: usize = 0;
-    while (attempt < 512) : (attempt += 1) {
+    while (attempt < 2048) : (attempt += 1) {
         const distance = (@as(usize, 1) << 20) * (attempt / 2 + 1);
         const candidate = if (attempt % 2 == 0) target -% distance else target + distance;
         const hint = candidate & ~(page_size - 1);
         const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED_NOREPLACE = true };
         const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
         if (@as(isize, @bitCast(result)) < 0) continue;
-        const address = result;
-        const offset = if (address > target) address - target else target - address;
-        if (offset < near_limit) return address;
-        _ = linux.munmap(@ptrFromInt(address), page_size);
+        return result;
     }
     return null;
 }
