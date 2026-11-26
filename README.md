@@ -1,5 +1,9 @@
 # z-il2cpp
 
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![zig](https://img.shields.io/badge/zig-0.18--dev-orange.svg)](https://ziglang.org)
+[![platforms](https://img.shields.io/badge/platforms-Windows%20x64%20%7C%20Android%20arm64-success.svg)](#artifacts)
+
 Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 
 - injection, hooks: Frida
@@ -497,6 +501,13 @@ Host side.
 - weak handles are not available, the export is missing
 
 Version: `abi_version` in `src/c.zig`. Increment on incompatible ABI change.
+
+## License
+
+Dual licensed under MIT OR Apache-2.0.
+
+- `LICENSE-MIT`
+- `LICENSE-APACHE`
 
 ## Artifacts
 
