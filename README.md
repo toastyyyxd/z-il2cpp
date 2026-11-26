@@ -50,11 +50,11 @@ zig build smoke-host
 ```
 
 ```sh
-FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll scripts/smoke.sh
+FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll tests/harness/smoke.sh
 ```
 
 ```sh
-GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll scripts/ingame.sh
+GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll tests/harness/ingame.sh
 ```
 
 Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64, Linux x86_64, and Android arm64. Game directory needs the winhttp proxy deployed.
@@ -62,11 +62,11 @@ Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev l
 ## Dev loop
 
 ```sh
-GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget-17.26.2-windows-x86_64.dll scripts/session.sh
+GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget-17.26.2-windows-x86_64.dll tests/harness/session.sh
 zig build shared
 cp zig-out/shared/* "$GAME_DIR/shared/"
 python3 scripts/probe.py
-scripts/session.sh stop
+tests/harness/session.sh stop
 ```
 
 ## Hooks
@@ -99,7 +99,7 @@ Native function hooks on AArch64 patch the entry instruction through `/proc/self
 - `tests/hooks/spike.js`: loads the spike DLL and verifies call counts
 
 ```sh
-scripts/hooks-smoke.sh
+tests/harness/hooks-smoke.sh
 ```
 
 MinHook is BSD 2-clause. Source in `third_party/minhook`.
@@ -138,7 +138,7 @@ Generic and inflated methods have a different entry ABI. Filter them out before 
 A normal DLL loaded by the agent. Unique file name per build. No game restart.
 
 ```sh
-GAME_DIR=/path/to/game scripts/dev-probe.sh
+GAME_DIR=/path/to/game tests/harness/dev-probe.sh
 ```
 
 Iteration: build, copy, load, hook selftest, unload.
@@ -176,10 +176,10 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 ```sh
 zig build test
 zig build fmt
-FRIDA_GADGET=/path/to/gadget.dll scripts/smoke.sh
-scripts/hooks-smoke.sh
-GAME_DIR=/path/to/game scripts/dev-probe.sh
-GAME_DIR=/path/to/game scripts/native-loader.sh
+FRIDA_GADGET=/path/to/gadget.dll tests/harness/smoke.sh
+tests/harness/hooks-smoke.sh
+GAME_DIR=/path/to/game tests/harness/dev-probe.sh
+GAME_DIR=/path/to/game tests/harness/native-loader.sh
 ```
 
 Expected: all selftests status 1 in the dev probe. Native loader writes `{"ok": true ...}` with width, hooks, frames, exception. No Frida module in the native loader run.
@@ -268,12 +268,21 @@ No Frida. The game loads the mod DLL itself.
 - Bootstrap: runtime init, read `Screen.width`, install Update hooks, write `zil2cpp-native-result.json`.
 
 ```sh
-GAME_DIR=/path/to/game scripts/native-loader.sh
+GAME_DIR=/path/to/game tests/harness/native-loader.sh
 ```
 
 Requirements: `winhttp_orig.dll` in the game directory. Write access to the game directory. No gadget, no agent script, no JS.
 
 Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it runs and bootstraps from the exact `onLeave`. The timeout fallback remains for environments where the DLL loads late.
+
+## Scripts
+
+Reusable scripts:
+
+- `scripts/android-probe.sh`: inject the Android probe into an APK you are authorized to modify, sign it, install it, and read the log. Target-specific manifest edits are CLI flags.
+- `scripts/probe.py`: host-side Frida runner. Loads a JS agent, injects constants, and waits for its result.
+
+The acceptance harnesses in `tests/harness/` assume this repo's test games and local Wine/Frida setup. They are not part of the library API.
 
 ## Layout
 
@@ -310,14 +319,14 @@ tests/smoke/agent.js       smoke agent, maps artifact and asserts ABI
 tests/support/frames.zig   shared Update hook helper
 tests/ingame/probe.js      dev probe agent
 tests/ingame/agent.js      one-shot probe agent
-scripts/smoke.sh           smoke orchestration
 scripts/android-probe.sh   APK instrumentation helper
-scripts/session.sh         persistent listen-mode game session
-scripts/probe.py           host probe runner
-scripts/ingame.sh          one-shot probe orchestration
-scripts/hooks-smoke.sh     game-free hook test
-scripts/dev-probe.sh       dev DLL loop
-scripts/native-loader.sh   Frida-free loader test
+scripts/probe.py           Frida host probe runner
+tests/harness/smoke.sh     smoke orchestration
+tests/harness/session.sh   persistent listen-mode game session
+tests/harness/ingame.sh    one-shot probe orchestration
+tests/harness/hooks-smoke.sh game-free hook test
+tests/harness/dev-probe.sh dev DLL loop
+tests/harness/native-loader.sh Frida-free loader test
 tests/linux/module.zig     Linux LD_PRELOAD probe
 tests/linux/loader_main.zig Linux loader test executable
 tests/native/proxy.zig     winhttp proxy, loads the mod DLL
