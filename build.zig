@@ -244,6 +244,32 @@ pub fn build(b: *std.Build) void {
     android_step.dependOn(&android_install.step);
     b.getInstallStep().dependOn(&android_install.step);
 
+    const linux_probe_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu });
+    const linux_probe_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = linux_probe_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    const linux_probe_module = b.createModule(.{
+        .root_source_file = b.path("tests/linux/module.zig"),
+        .target = linux_probe_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    linux_probe_module.addImport("z_il2cpp", linux_probe_lib);
+    const linux_probe = b.addLibrary(.{
+        .name = "zil2cpp_probe",
+        .linkage = .dynamic,
+        .root_module = linux_probe_module,
+    });
+    const linux_probe_install = b.addInstallArtifact(linux_probe, .{
+        .dest_dir = .{ .override = .{ .custom = "linux" } },
+    });
+    const linux_probe_step = b.step("linux-probe", "Build the Linux LD_PRELOAD probe");
+    linux_probe_step.dependOn(&linux_probe_install.step);
+    b.getInstallStep().dependOn(&linux_probe_install.step);
+
     const test_step = b.step("test", "Run unit tests");
 
     const root_tests = b.addTest(.{ .root_module = mod });

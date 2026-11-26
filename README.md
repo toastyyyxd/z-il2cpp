@@ -13,7 +13,16 @@ Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 - mod logic: native
 - JS VM: no per-frame work
 
-Status: reflection and hooks work in game on Windows x64 and Android arm64. Static and instance calls, primitive arguments, managed strings, GC handles, field access, managed arrays, managed exception detail, method enumeration, virtual methods, static fields, structs, native frame hooks.
+Status: reflection and hooks work in game on Windows x64 and Android arm64. Linux x86_64 reflection is validated in game. Static and instance calls, primitive arguments, managed strings, GC handles, field access, managed arrays, managed exception detail, method enumeration, virtual methods, static fields, structs, native frame hooks.
+
+## Support
+
+| target | reflection | hooks | loader helper | validated in game |
+| --- | --- | --- | --- | --- |
+| Windows x64 | yes | MinHook | Windows imports | yes |
+| Android arm64 | yes | arm64 inline and method pointer | `zil2cpp.android` | yes |
+| Linux x86_64 | yes | none | user supplied | reflection only |
+| Linux aarch64 | builds | arm64 code present | user supplied | no |
 
 ## Build
 
@@ -149,7 +158,7 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 - MethodInfo layout, GC handle size, and array header size are validated against one game and Unity 6000.3. Probe each new build before relying on them.
 - Code patches and MinHook are visible to anti-cheat tooling. Do not use this in protected games.
 - The Android probe removes the target app for testing. Do not ship patched builds.
-- Linux artifacts build but are not validated. Supported targets are Windows x64 and Android arm64.
+- Linux x86_64 reflection is validated in game. Hooks are unsupported there. Linux aarch64 is not validated.
 
 ## Acceptance tests
 
@@ -237,6 +246,18 @@ Native function hooks patch through `/proc/self/mem` first. Page protection is n
 
 Next: PC-relative prologue relocation if a game needs it.
 
+## Linux
+
+The Linux x86_64 probe is `zig build linux-probe`. It builds `zig-out/linux/libzil2cpp_probe.so` and is loaded with `LD_PRELOAD`. A constructor starts a pthread, waits for `GameAssembly.so`, opens it with `dlopen`, and reads `UnityEngine.Screen.get_width`.
+
+Test target: a Unity IL2CPP build.
+
+```sh
+LD_PRELOAD=$PWD/zig-out/linux/libzil2cpp_probe.so ./game.x86_64 -batchmode -nographics
+```
+
+Result: `width=640` in headless mode, then `done`. Hooks on Linux x86_64 are not implemented. The loader helper is user supplied, the same as the generic `Loader`.
+
 ## Native loader
 
 No Frida. The game loads the mod DLL itself.
@@ -297,6 +318,8 @@ scripts/hooks-smoke.sh     game-free hook test
 scripts/dev-probe.sh       dev DLL loop
 scripts/native-loader.sh   Frida-free loader test
 a private test harness   private test harness
+a private test tool  private test tool
+tests/linux/module.zig     Linux LD_PRELOAD probe
 tests/native/proxy.zig     winhttp proxy, loads the mod DLL
 tests/native/module.zig    native mod DLL, startup and frame hooks
 tests/android/module.zig   Android probe, reflection and frame hooks
@@ -531,7 +554,7 @@ Assets:
 
 ```
 z-il2cpp-<version>-windows-x86_64.zip
-z-il2cpp-<version>-linux-x86_64-unvalidated.tar.gz
+z-il2cpp-<version>-linux-x86_64-reflection-only.tar.gz
 z-il2cpp-<version>-linux-aarch64-unvalidated.tar.gz
 z-il2cpp-<version>-android-arm64.tar.gz
 z-il2cpp-<version>-all.tar.gz
@@ -540,7 +563,7 @@ SHA256SUMS
 
 Each archive contains the shared artifact, the manifest, the README, and both license files.
 
-Linux assets are build-only and unvalidated. Supported targets are Windows x64 and Android arm64.
+Linux x86_64 has reflection only. Hooks are unsupported. Linux aarch64 is unvalidated.
 
 ## License
 
