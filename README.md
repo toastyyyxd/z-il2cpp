@@ -6,7 +6,7 @@ Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 - mod logic: native
 - JS VM: no per-frame work
 
-Status: reflection layer works in game. Static and instance calls, primitive arguments, managed strings, GC handles, field access.
+Status: reflection and hooks work in game on Windows x64 and Android arm64. Static and instance calls, primitive arguments, managed strings, GC handles, field access, managed arrays, managed exception detail, method enumeration, virtual methods, static fields, structs, native frame hooks.
 
 ## Build
 
@@ -16,6 +16,7 @@ zig build
 zig build test
 zig build fmt
 zig build shared
+zig build android
 zig build smoke-host
 ```
 
@@ -75,7 +76,7 @@ scripts/hooks-smoke.sh
 
 MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
-Managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build.
+On Windows x64, managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build. On AArch64, use `MethodPointerHook` for managed methods.
 
 `z_il2cpp.Hooks` provides typed hooks.
 
@@ -129,8 +130,10 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 ## Platform seam
 
 - `src/platform.zig`: pointer size, method entry offsets, array header size, GC handle size.
-- `src/backend/minhook.zig`: hook backend. Windows x64 only today.
-- `z_il2cpp.Hooks` stays the same when Dobby replaces the backend on arm64.
+- `src/backend/minhook.zig`: Windows x64 hook backend.
+- `src/backend/arm64.zig`: AArch64 hook backend.
+- `src/backend/stub.zig`: unsupported targets.
+- `z_il2cpp.Hooks` keeps the same API across backends.
 
 ## Acceptance tests
 
@@ -144,6 +147,15 @@ GAME_DIR=/path/to/game scripts/native-loader.sh
 ```
 
 Expected: all selftests status 1 in the dev probe. Native loader writes `{"ok": true ...}` with width, hooks, frames, exception. No Frida module in the native loader run.
+
+Android:
+
+```sh
+zig build android
+a private test harness
+```
+
+Expected: `width=2244`, prologue census, eight frame hooks, about 480 detour calls, hooks removed, process alive.
 
 ## Android arm64
 
@@ -167,7 +179,7 @@ const address = android.symbol("il2cpp_domain_get");
 const log = android.resolveSymbol("liblog.so", "__android_log_write");
 ```
 
-Symbol lookup uses `/proc/self/maps` and the ELF dynamic table. The module handle comes from `dlopen`. 
+Symbol lookup uses `/proc/self/maps` and the ELF dynamic table. The module handle comes from `dlopen`.
 
 The probe loads the library into a repackaged split APK. `libmain.so` gains a `libzil2cpp.so` dependency. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. Results go to `/data/data/<package>/zil2cpp-log.txt`, read with `run-as`.
 
@@ -175,7 +187,7 @@ The probe loads the library into a repackaged split APK. `libmain.so` gains a `l
 a private test harness
 ```
 
-Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`, protolog census, eight frame hooks, 480 calls.
+Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`, prologue census, eight frame hooks, about 480 detour calls in eight seconds, six consecutive runs stable.
 
 
 Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
@@ -188,7 +200,7 @@ The first instruction is classified before patching:
 - stack setup and other plain instructions: copied
 - `ADR`, `ADRP`, `LDR` literal, conditional branches, `CBZ`, `TBZ`: refused with `HookUnsupported`
 
-Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` method pointer hooks installed, 480 detour calls in eight seconds, hooks removed cleanly, six consecutive runs stable.
+Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer.
 
 Prologue distribution from 4000 methods in `Assembly-CSharp.dll` on Android 17 arm64:
 
@@ -201,11 +213,11 @@ TBZ        5
 BL, BTI, B.cond, LDR literal, ADR: 0
 ```
 
-All eight sampled `Update` methods were plain. Unsupported forms are about 1.6 percent of all methods and are refused.
+All eight sampled `Update` methods were plain. Unsupported forms are about 1.6 percent of all methods and are refused. Eight `Update` method pointer hooks installed, 480 detour calls in eight seconds, hooks removed cleanly, six consecutive runs stable.
 
-Code page protection changes use RWX only. If RWX is denied, the hook fails instead of dropping execute permission on a page other threads may run.
+Native function hooks patch through `/proc/self/mem` first. Page protection is not changed on that path. The `mprotect` RWX fallback is used only when the memory write fails.
 
-`Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere.
+`Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere. Managed arm64 hooks use method pointer replacement instead of code patches.
 
 Next: PC-relative prologue relocation if a game needs it.
 
@@ -232,7 +244,7 @@ Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it 
 ## Layout
 
 ```
-build.zig                  build steps: default, shared, smoke-host, hooks-host, hooks-spike, dev-dll, native-proxy, native-dll, test, fmt
+build.zig                  build steps: default, shared, android, smoke-host, hooks-host, hooks-spike, dev-dll, native-proxy, native-dll, test, fmt
 src/root.zig               public Zig API
 src/Loader.zig             loader function pointers
 src/Exports.zig            il2cpp export table and resolution
@@ -249,7 +261,7 @@ src/arm64.zig              arm64 instruction classification
 src/backend/minhook.zig    Windows x64 hook backend
 src/backend/arm64.zig      AArch64 hook backend
 src/Elf.zig                ELF symbol resolver
-src/android.zig            Android loader
+src/android.zig            Android loader (waits, dlopen, symbol)
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set
@@ -268,8 +280,10 @@ scripts/ingame.sh          one-shot probe orchestration
 scripts/hooks-smoke.sh     game-free hook test
 scripts/dev-probe.sh       dev DLL loop
 scripts/native-loader.sh   Frida-free loader test
+a private test harness   private test harness
 tests/native/proxy.zig     winhttp proxy, loads the mod DLL
 tests/native/module.zig    native mod DLL, startup and frame hooks
+tests/android/module.zig   Android probe, reflection and frame hooks
 tests/dev/module.zig       dev DLL, managed hook selftest
 tests/dev/probe.js         dev DLL probe
 tests/hooks/host.zig       game-free MinHook test
@@ -461,11 +475,21 @@ Error codes.
 -17 invalid parameter count
 ```
 
+Artifacts by target:
+
+| target | artifact |
+| --- | --- |
+| Windows x64 | `z-il2cpp-windows-x86_64.pe` |
+| Linux x86_64 | `z-il2cpp-linux-x86_64.so` |
+| Linux aarch64 | `z-il2cpp-linux-aarch64.so` |
+| Android arm64 | `z-il2cpp-android-arm64.so` |
+
 Host side.
 
 - allocate and zero `State`
-- allocate `Loader` with two Windows loader pointers
+- allocate `Loader` with two loader pointers: Windows imports, or `zil2cpp.android.loader` on Android
 - allocate scratch, at least 1024 bytes, 4096 recommended
+- on Android, the library has no `libc` dependency; all file and log access goes through raw syscalls
 - retain the module wrapper, GC unmaps it
 - strip PE TLS directory, required for Wine/Proton
 - call from one thread
@@ -482,6 +506,6 @@ Version: `abi_version` in `src/c.zig`. Increment on incompatible ABI change.
 zig-out/shared/z-il2cpp-windows-x86_64.pe
 zig-out/shared/z-il2cpp-linux-x86_64.so
 zig-out/shared/z-il2cpp-linux-aarch64.so
-z-il2cpp-android-arm64.so
+zig-out/shared/z-il2cpp-android-arm64.so
 zig-out/shared/manifest.json
 ```
