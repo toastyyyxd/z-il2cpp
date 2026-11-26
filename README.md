@@ -24,6 +24,18 @@ Status: validated in game on Windows x64, Android arm64, and Linux x86_64. Linux
 | Linux x86_64 | yes | x86_64 inline and method pointer | `zil2cpp.linux` | yes |
 | Linux aarch64 | builds | arm64 code present | `zil2cpp.linux` | no |
 
+Backend feature coverage:
+
+| feature | Windows x64 | Android arm64 | Linux x86_64 | Linux aarch64 |
+| --- | --- | --- | --- | --- |
+| page pooling | no | no | yes | no |
+| code caves | no | no | yes | no |
+| permanent wrapper with atomic disable | no | no | yes | no |
+| aligned atomic entry patch | no | 4-byte store | yes | no |
+| method pointer hooks | no | yes | yes | yes |
+
+Pooling, code caves, permanent wrappers, and atomic entry patches are Linux x86_64 only. `Hooks.setCodeCaves` is a no-op on the other backends.
+
 ## Build
 
 ```sh
