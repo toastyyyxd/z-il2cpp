@@ -21,7 +21,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: format
-        run: nix develop --command zig fmt --check build.zig src tests tools
+        run: nix develop --command zig fmt --check build.zig src tests build
 
       - name: test
         run: nix develop --command zig build test

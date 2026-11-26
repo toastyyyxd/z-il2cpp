@@ -303,8 +303,8 @@ src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set
 src/c.zig                  C ABI, State, exports, shared-library root
-tools/strip_pe_tls.zig     PE TLS directory strip
-tools/gen_manifest.zig     artifact manifest (name, size, sha256)
+build/strip_pe_tls.zig     PE TLS directory strip
+build/gen_manifest.zig     artifact manifest (name, size, sha256)
 tests/smoke/host.zig       smoke host, loads frida-gadget.dll
 tests/smoke/agent.js       smoke agent, maps artifact and asserts ABI
 tests/support/frames.zig   shared Update hook helper

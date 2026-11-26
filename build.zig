@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     const manifest_tool = b.addExecutable(.{
         .name = "gen-manifest",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/gen_manifest.zig"),
+            .root_source_file = b.path("build/gen_manifest.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     const strip_tool = b.addExecutable(.{
         .name = "strip-pe-tls",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/strip_pe_tls.zig"),
+            .root_source_file = b.path("build/strip_pe_tls.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -319,14 +319,14 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(shared_tests).step);
 
     const strip_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/strip_pe_tls.zig"),
+        .root_source_file = b.path("build/strip_pe_tls.zig"),
         .target = target,
         .optimize = optimize,
     }) });
     test_step.dependOn(&b.addRunArtifact(strip_tests).step);
 
     const manifest_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/gen_manifest.zig"),
+        .root_source_file = b.path("build/gen_manifest.zig"),
         .target = target,
         .optimize = optimize,
     }) });
