@@ -1,8 +1,9 @@
 # z-il2cpp
 
-[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![zig](https://img.shields.io/badge/zig-0.18--dev-orange.svg)](https://ziglang.org)
-[![platforms](https://img.shields.io/badge/platforms-Windows%20x64%20%7C%20Android%20arm64-success.svg)](#artifacts)
+[![CI](https://img.shields.io/github/actions/workflow/status/toastyyyxd/z-il2cpp/ci.yml?branch=main&label=ci&style=flat-square)](https://github.com/toastyyyxd/z-il2cpp/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](#license)
+[![Zig](https://img.shields.io/badge/Zig-0.18.0--dev-f7a41d?logo=zig&style=flat-square)](https://git.toastyx.dev/toasty/z-il2cpp)
+[![platforms](https://img.shields.io/badge/platforms-Windows%20x64%20%7C%20Android%20arm64-success?style=flat-square)](#artifacts)
 
 ## Scope
 
