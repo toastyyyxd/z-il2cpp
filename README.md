@@ -13,7 +13,7 @@ Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 - mod logic: native
 - JS VM: no per-frame work
 
-Status: reflection and hooks work in game on Windows x64, Android arm64, and Linux x86_64. Linux aarch64 is untested. Static and instance calls, primitive arguments, managed strings, GC handles, field access, managed arrays, managed exception detail, method enumeration, virtual methods, static fields, structs, native frame hooks.
+Status: validated in game on Windows x64, Android arm64, and Linux x86_64. Linux aarch64 is untested. Static and instance calls, primitive arguments, managed strings, GC handles, field access, managed arrays, managed exception detail, method enumeration, virtual methods, static fields, structs, native frame hooks.
 
 ## Support
 
@@ -455,7 +455,7 @@ const count = try names.length();
 const first = try names.get(?*anyopaque, 0);
 ```
 
-Element size comes from IL2CPP. Element data starts at the x64 array header offset, 32 bytes. Layout is checked against `@sizeOf`.
+Element size comes from IL2CPP. Element data starts at the array header offset, 32 bytes. Layout is checked against `@sizeOf`.
 
 `Method.isVirtual`, `Method.resolveVirtual`, and `Method.virtualEntryPoint` cover overrides. `Hooks.hookVirtualMethod` resolves the override for an instance and hooks it.
 
