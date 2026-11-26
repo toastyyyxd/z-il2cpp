@@ -2,13 +2,12 @@ const std = @import("std");
 const linux = std.os.linux;
 const Error = @import("../error.zig").Error;
 const x86 = @import("../x86_64.zig");
+const Chunked = @import("Chunked.zig");
 
 const page_size: usize = 4096;
 const patch_size: usize = 5;
-const entry_chunk_size: usize = 256;
 const slot_size: usize = 64;
 const slots_per_page: usize = page_size / slot_size;
-const page_chunk_size: usize = 32;
 const near_limit: usize = 1536 * 1024 * 1024;
 const trampoline_offset: usize = 24;
 const maps_size: usize = 1024 * 1024;
@@ -46,27 +45,13 @@ pub const Prepared = struct {
     original: *const anyopaque,
 };
 
-const EntryChunk = struct {
-    entries: [entry_chunk_size]Entry = @splat(.{}),
-    next: ?*EntryChunk = null,
-};
+const EntryTable = Chunked.Table(Entry, 256);
+const PageTable = Chunked.Table(Page, 32);
+const DataPageTable = Chunked.Table(DataPage, 32);
 
-const PageChunk = struct {
-    pages: [page_chunk_size]Page = @splat(.{}),
-    next: ?*PageChunk = null,
-};
-
-const DataPageChunk = struct {
-    pages: [page_chunk_size]DataPage = @splat(.{}),
-    next: ?*DataPageChunk = null,
-};
-
-var entry_chunks: ?*EntryChunk = null;
-var entry_chunk_count: usize = 0;
-var page_chunks: ?*PageChunk = null;
-var page_chunk_count: usize = 0;
-var data_page_chunks: ?*DataPageChunk = null;
-var data_page_chunk_count: usize = 0;
+var entries: EntryTable = .{};
+var pages: PageTable = .{};
+var data_pages: DataPageTable = .{};
 var maps_storage: [maps_size]u8 = undefined;
 
 const Cave = struct { start: usize, length: usize };
@@ -81,36 +66,24 @@ var cave_seed: u64 = 0;
 pub fn init() Error!void {}
 
 pub fn deinit() Error!void {
-    var page_chunk = page_chunks;
+    var page_chunk = pages.first;
     while (page_chunk) |current| : (page_chunk = current.next) {
-        for (current.pages) |page| {
+        for (current.items) |page| {
             if (page.address == 0) continue;
             _ = linux.munmap(@ptrFromInt(page.address), page_size);
             if (page.fd >= 0) _ = linux.close(page.fd);
         }
     }
-    var data_chunk = data_page_chunks;
+    var data_chunk = data_pages.first;
     while (data_chunk) |current| : (data_chunk = current.next) {
-        for (current.pages) |page| {
+        for (current.items) |page| {
             if (page.address == 0) continue;
             _ = linux.munmap(@ptrFromInt(page.address), page_size);
         }
     }
-    var entry_chunk = entry_chunks;
-    while (entry_chunk) |current| : (entry_chunk = current.next) {
-        _ = linux.munmap(@ptrCast(current), chunkMapSize(EntryChunk));
-    }
-    var all_page_chunk = page_chunks;
-    while (all_page_chunk) |current| : (all_page_chunk = current.next) {
-        _ = linux.munmap(@ptrCast(current), chunkMapSize(PageChunk));
-    }
-    var all_data_chunk = data_page_chunks;
-    while (all_data_chunk) |current| : (all_data_chunk = current.next) {
-        _ = linux.munmap(@ptrCast(current), chunkMapSize(DataPageChunk));
-    }
-    entry_chunks = null;
-    page_chunks = null;
-    data_page_chunks = null;
+    entries.deinit();
+    pages.deinit();
+    data_pages.deinit();
 }
 
 pub fn configure(code_caves: bool, entropy: u64) void {
@@ -225,9 +198,9 @@ pub fn cancel(prepared: Prepared) void {
 
 pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
-    var chunk = entry_chunks;
+    var chunk = entries.first;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.entries) |*entry| {
+        for (&current.items) |*entry| {
             if (entry.target != target) continue;
             if (entry.active and entry.data_pointer != 0) {
                 @atomicStore(u64, @as(*u64, @ptrFromInt(entry.data_pointer)), entry.trampoline_address, .release);
@@ -262,10 +235,10 @@ fn acquireSlot(target: usize, patch_address: usize, copied: usize) Error!Allocat
     if (caves_enabled and memoryPatchAvailable()) {
         if (caveAllocation(target, patch_address, copied)) |allocation| return allocation;
     }
-    var chunk = page_chunks;
+    var chunk = pages.first;
     var base: usize = 0;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.pages, 0..) |*page, local| {
+        for (&current.items, 0..) |*page, local| {
             if (page.address == 0 or !near(page.address, target)) continue;
             const slot_index = page.used.fetchAdd(1, .monotonic);
             if (slot_index >= slots_per_page) {
@@ -282,7 +255,7 @@ fn acquireSlot(target: usize, patch_address: usize, copied: usize) Error!Allocat
                 .kind = .pool,
             };
         }
-        base += page_chunk_size;
+        base += 32;
     }
     const index = allocPageIndex() orelse return error.HookNoMemory;
     const page = pageAt(index);
@@ -425,9 +398,9 @@ fn caveEligible(cave: Cave, target: usize, patch_address: usize, length: usize, 
     } else if (target - address >= near_limit) return false;
     if (address <= patch_address and patch_address < address + length) return false;
     if (exclude_length != 0 and address + length > exclude_start and address < exclude_start + exclude_length) return false;
-    var chunk = entry_chunks;
+    var chunk = entries.first;
     while (chunk) |current| : (chunk = current.next) {
-        for (current.entries) |entry| {
+        for (current.items) |entry| {
             if (entry.target == 0) continue;
             if (entry.slot_address != 0) {
                 if (address + length > entry.slot_address and address < entry.slot_address + 16) return false;
@@ -533,9 +506,9 @@ fn memoryPatchAvailable() bool {
 }
 
 fn acquireDataPointer(target: usize) Error!usize {
-    var chunk = data_page_chunks;
+    var chunk = data_pages.first;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.pages) |*page| {
+        for (&current.items) |*page| {
             if (page.address == 0 or !near(page.address, target)) continue;
             const index = page.used.fetchAdd(1, .monotonic);
             if (index >= page_size / 8) {
@@ -616,91 +589,49 @@ fn writeIntToSliceAt(buffer: []u8, offset: usize, value: anytype) void {
 }
 
 fn entryAt(slot: usize) *Entry {
-    var chunk = entry_chunks.?;
-    var remaining = slot / entry_chunk_size;
-    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
-    return &chunk.entries[slot % entry_chunk_size];
+    return entries.item(slot);
 }
 
 fn freeSlot() ?usize {
-    var chunk = entry_chunks;
+    var chunk = entries.first;
     var base: usize = 0;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.entries, 0..) |*entry, index| {
+        for (&current.items, 0..) |*entry, index| {
             if (entry.target == 0) return base + index;
         }
-        base += entry_chunk_size;
+        base += 256;
     }
-    const created = createChunk(EntryChunk) orelse return null;
-    if (entry_chunks) |first| {
-        var tail = first;
-        while (tail.next) |next| tail = next;
-        tail.next = created;
-    } else entry_chunks = created;
-    entry_chunk_count += 1;
-    return (entry_chunk_count - 1) * entry_chunk_size;
+    return entries.appendChunk();
 }
 
 fn pageAt(index: usize) *Page {
-    var chunk = page_chunks.?;
-    var remaining = index / page_chunk_size;
-    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
-    return &chunk.pages[index % page_chunk_size];
+    return pages.item(index);
 }
 
 fn dataPageAt(index: usize) *DataPage {
-    var chunk = data_page_chunks.?;
-    var remaining = index / page_chunk_size;
-    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
-    return &chunk.pages[index % page_chunk_size];
-}
-
-fn chunkMapSize(comptime T: type) usize {
-    return std.mem.alignForward(usize, @sizeOf(T), page_size);
-}
-
-fn createChunk(comptime T: type) ?*T {
-    const size = chunkMapSize(T);
-    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
-    const result = linux.mmap(null, size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
-    if (@as(isize, @bitCast(result)) < 0) return null;
-    return @ptrCast(@alignCast(@as([*]u8, @ptrFromInt(result))));
+    return data_pages.item(index);
 }
 
 fn allocPageIndex() ?usize {
-    var chunk = page_chunks;
+    var chunk = pages.first;
     var base: usize = 0;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.pages, 0..) |*page, index| {
+        for (&current.items, 0..) |*page, index| {
             if (page.address == 0) return base + index;
         }
-        base += page_chunk_size;
+        base += 32;
     }
-    const created = createChunk(PageChunk) orelse return null;
-    if (page_chunks) |first| {
-        var tail = first;
-        while (tail.next) |next| tail = next;
-        tail.next = created;
-    } else page_chunks = created;
-    page_chunk_count += 1;
-    return (page_chunk_count - 1) * page_chunk_size;
+    return pages.appendChunk();
 }
 
 fn allocDataPageIndex() ?usize {
-    var chunk = data_page_chunks;
+    var chunk = data_pages.first;
     var base: usize = 0;
     while (chunk) |current| : (chunk = current.next) {
-        for (&current.pages, 0..) |*page, index| {
+        for (&current.items, 0..) |*page, index| {
             if (page.address == 0) return base + index;
         }
-        base += page_chunk_size;
+        base += 32;
     }
-    const created = createChunk(DataPageChunk) orelse return null;
-    if (data_page_chunks) |first| {
-        var tail = first;
-        while (tail.next) |next| tail = next;
-        tail.next = created;
-    } else data_page_chunks = created;
-    data_page_chunk_count += 1;
-    return (data_page_chunk_count - 1) * page_chunk_size;
+    return data_pages.appendChunk();
 }

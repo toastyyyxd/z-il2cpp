@@ -2,9 +2,9 @@ const std = @import("std");
 const linux = std.os.linux;
 const Error = @import("../error.zig").Error;
 const arm64 = @import("../arm64.zig");
+const Chunked = @import("Chunked.zig");
 
 const page_size: usize = 4096;
-const max_hooks = 1024;
 const near_limit: usize = 124 * 1024 * 1024;
 const stub_offset: usize = 0;
 const trampoline_offset: usize = 0x100;
@@ -23,11 +23,14 @@ pub const Prepared = struct {
     original: *const anyopaque,
 };
 
-var entries: [max_hooks]Entry = @splat(.{});
+const EntryTable = Chunked.Table(Entry, 256);
+var entries: EntryTable = .{};
 var memory_fd: linux.fd_t = -2;
 
 pub fn init() Error!void {}
-pub fn deinit() Error!void {}
+pub fn deinit() Error!void {
+    entries.deinit();
+}
 
 pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!Prepared {
     const target = @intFromPtr(target_pointer orelse return error.HookFailed);
@@ -57,7 +60,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
     flushCache(stub_page, stub_page + page_size);
     if (!protect(stub_page, page_size, .{ .READ = true, .EXEC = true })) return error.HookProtectFailed;
 
-    entries[slot] = .{
+    entries.item(slot).* = .{
         .target = target,
         .patch_address = patch_address,
         .stub_page = stub_page,
@@ -69,14 +72,14 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
 }
 
 pub fn activate(prepared: Prepared) Error!void {
-    const entry = &entries[prepared.slot];
+    const entry = entries.item(prepared.slot);
     if (entry.active) return;
     writeInstruction(entry.patch_address, entry.patch_instruction) catch return error.HookWriteFailed;
     entry.active = true;
 }
 
 pub fn cancel(prepared: Prepared) void {
-    const entry = &entries[prepared.slot];
+    const entry = entries.item(prepared.slot);
     if (entry.active) return;
     _ = linux.munmap(@ptrFromInt(entry.stub_page), page_size);
     entry.* = .{};
@@ -84,21 +87,29 @@ pub fn cancel(prepared: Prepared) void {
 
 pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
-    for (&entries) |*entry| {
-        if (entry.target != target) continue;
-        if (entry.active) {
-            writeInstruction(entry.patch_address, entry.original_instruction) catch {};
+    var chunk = entries.first;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.items) |*entry| {
+            if (entry.target != target) continue;
+            if (entry.active) {
+                writeInstruction(entry.patch_address, entry.original_instruction) catch {};
+            }
+            entry.* = .{};
+            return;
         }
-        entry.* = .{};
-        return;
     }
 }
 
 fn freeSlot() ?usize {
-    for (&entries, 0..) |*entry, index| {
-        if (entry.target == 0) return index;
+    var chunk = entries.first;
+    var base: usize = 0;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.items, 0..) |*entry, index| {
+            if (entry.target == 0) return base + index;
+        }
+        base += 256;
     }
-    return null;
+    return entries.appendChunk();
 }
 
 fn readInstruction(address: usize) u32 {
