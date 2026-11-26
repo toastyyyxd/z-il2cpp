@@ -518,6 +518,28 @@ Host side.
 
 Version: `abi_version` in `src/c.zig`. Current version 2. Increment on incompatible ABI change.
 
+## Releases
+
+Tags matching `v*` trigger the release workflow.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Assets:
+
+```
+z-il2cpp-<version>-windows-x86_64.zip
+z-il2cpp-<version>-linux-x86_64.tar.gz
+z-il2cpp-<version>-linux-aarch64.tar.gz
+z-il2cpp-<version>-android-arm64.tar.gz
+z-il2cpp-<version>-all.tar.gz
+SHA256SUMS
+```
+
+Each archive contains the shared artifact, the manifest, the README, and both license files.
+
 ## License
 
 Dual licensed under MIT OR Apache-2.0.

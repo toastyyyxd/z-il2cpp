@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: allow unprivileged user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if [ -e /proc/sys/kernel/unprivileged_userns_clone ]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+
+      - uses: cachix/install-nix-action@v32.1.0
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: build shared artifacts
+        run: nix develop --command zig build shared
+
+      - name: package
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          dist="$PWD/dist"
+          mkdir -p "$dist"
+          shared="zig-out/shared"
+
+          package() {
+            target="$1"
+            artifact="$2"
+            archive="z-il2cpp-${tag#v}-${target}"
+            mkdir -p "stage/$target"
+            cp "$shared/$artifact" "stage/$target/"
+            cp "$shared/manifest.json" "stage/$target/"
+            cp README.md LICENSE-MIT LICENSE-APACHE "stage/$target/"
+            case "$target" in
+              windows-*) (cd "stage/$target" && python3 -m zipfile -c "$dist/$archive.zip" .) ;;
+              *) tar -czf "$dist/$archive.tar.gz" -C "stage/$target" . ;;
+            esac
+          }
+
+          package windows-x86_64 z-il2cpp-windows-x86_64.pe
+          package linux-x86_64 z-il2cpp-linux-x86_64.so
+          package linux-aarch64 z-il2cpp-linux-aarch64.so
+          package android-arm64 z-il2cpp-android-arm64.so
+
+          mkdir -p stage/all
+          cp "$shared"/* stage/all/
+          cp README.md LICENSE-MIT LICENSE-APACHE stage/all/
+          tar -czf "$dist/z-il2cpp-${tag#v}-all.tar.gz" -C stage/all .
+          (cd "$dist" && sha256sum ./* > SHA256SUMS)
+          ls -lh "$dist"
+
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          flags=()
+          if [[ "$tag" == *-dev ]]; then
+            flags+=(--latest=false)
+          else
+            flags+=(--latest)
+          fi
+          previous="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            flags+=(--notes-start-tag "$previous")
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --title "$tag" \
+              --generate-notes \
+              "${flags[@]}"
+          fi
