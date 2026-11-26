@@ -85,7 +85,7 @@ fn readInstruction(address: usize) u32 {
 fn writeInstruction(address: usize, instruction: u32) !void {
     const page = address & ~(page_size - 1);
     if (!protect(page, page_size, .{ .READ = true, .WRITE = true, .EXEC = true })) {
-        if (!protect(page, page_size, .{ .READ = true, .WRITE = true })) return error.HookFailed;
+        return error.HookProtectFailed;
     }
     @as(*volatile u32, @ptrFromInt(address)).* = instruction;
     flushCache(address, address + 4);

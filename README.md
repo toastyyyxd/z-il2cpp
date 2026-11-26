@@ -154,7 +154,22 @@ The first instruction is classified before patching:
 - stack setup and other plain instructions: copied
 - `ADR`, `ADRP`, `LDR` literal, conditional branches, `CBZ`, `TBZ`: refused with `HookUnsupported`
 
-Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` hooks installed, 482 detour calls in eight seconds, hooks removed cleanly.
+Verified in game: `il2cpp_domain_get` hooked, one detour call, original returned the same pointer. Eight `Update` hooks installed, 479 detour calls in eight seconds, hooks removed cleanly.
+
+Prologue distribution from 4000 methods in `Assembly-CSharp.dll` on Android 17 arm64:
+
+```
+plain   3859
+B         79
+CBZ       34
+ADRP      23
+TBZ        5
+BL, BTI, B.cond, LDR literal, ADR: 0
+```
+
+All eight sampled `Update` methods were plain. Unsupported forms are about 1.6 percent of all methods and are refused.
+
+Code page protection changes use RWX only. If RWX is denied, the hook fails instead of dropping execute permission on a page other threads may run.
 
 `Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere.
 

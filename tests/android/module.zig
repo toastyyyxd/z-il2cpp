@@ -18,6 +18,49 @@ fn domainDetour() callconv(.c) ?*anyopaque {
     return domain_hook.?.original();
 }
 
+fn prologueCensus(runtime_value: Runtime) void {
+    const image = runtime_value.findImage("Assembly-CSharp.dll") catch {
+        logText("census: no image");
+        return;
+    };
+    var counts: [10]usize = @splat(0);
+    var examples: usize = 0;
+    var sampled: usize = 0;
+    const class_count = image.classCount();
+    var class_index: usize = 0;
+    while (class_index < class_count and sampled < 4000) : (class_index += 1) {
+        const klass = image.classAt(class_index) catch continue;
+        if (klass.isGeneric() or klass.isInflated()) continue;
+        var iterator = klass.methods();
+        while (iterator.next()) |method| {
+            if (sampled >= 4000) break;
+            if (method.isGeneric() or method.isInflated()) continue;
+            const address = (method.entryPoint() catch continue) orelse continue;
+            const word = @as(*const volatile u32, @ptrFromInt(@intFromPtr(address))).*;
+            const kind = arm64.classify(word);
+            counts[@backingInt(kind)] += 1;
+            sampled += 1;
+            if (kind != .plain and examples < 8) {
+                logFmt("census: word={x} kind={s}", .{ word, @tagName(kind) });
+                examples += 1;
+            }
+        }
+    }
+    logFmt("census: sampled={d} plain={d} b={d} bl={d} bti={d} bcond={d} cbz={d} tbz={d} ldr={d} adr={d} adrp={d}", .{
+        sampled,
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3],
+        counts[4],
+        counts[5],
+        counts[6],
+        counts[7],
+        counts[8],
+        counts[9],
+    });
+}
+
 fn frameProbe(runtime_value: Runtime) void {
     const image = runtime_value.findImage("Assembly-CSharp.dll") catch {
         logText("frames: no image");
@@ -418,6 +461,7 @@ fn worker() void {
     };
     logFmt("width={d}", .{width});
     hookTest();
+    prologueCensus(runtime);
     frameProbe(runtime);
     logText("done");
 }
