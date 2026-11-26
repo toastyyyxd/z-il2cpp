@@ -218,6 +218,12 @@ var fields = klass.fields();
 while (fields.next()) |entry| {
     const type_name = entry.typeName();
 }
+
+var methods = klass.methods();
+while (methods.next()) |method| {
+    const method_name = method.name();
+    const parameter_count = method.parameterCount();
+}
 ```
 
 Struct arguments and returns use Zig `extern struct` types. Layout must match the managed layout. Supported argument types: bool, integers, floats, enums, pointers, extern structs. Return types add void and `?*anyopaque` references.

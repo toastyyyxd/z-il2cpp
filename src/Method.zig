@@ -7,6 +7,14 @@ pub const Method = struct {
     runtime: Runtime,
     pointer: ?*anyopaque,
 
+    pub fn name(self: Method) ?[*:0]const u8 {
+        return self.runtime.exports.method_get_name(self.pointer);
+    }
+
+    pub fn parameterCount(self: Method) usize {
+        return self.runtime.exports.method_get_param_count(self.pointer);
+    }
+
     pub fn isStatic(self: Method) bool {
         var iflags: u32 = 0;
         return (self.runtime.exports.method_get_flags(self.pointer, &iflags) & 0x0010) != 0;

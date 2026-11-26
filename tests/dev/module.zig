@@ -155,6 +155,36 @@ fn selftestStructArgs(runtime_value: Runtime) i32 {
     return 1;
 }
 
+fn selftestMethods(runtime_value: Runtime) i32 {
+    const screen = runtime_value.findClass("UnityEngine", "Screen") catch return -80;
+    var screen_methods = screen.methods();
+    var found_width = false;
+    var screen_count: u32 = 0;
+    while (screen_methods.next()) |method| {
+        screen_count += 1;
+        const name = method.name() orelse continue;
+        if (std.mem.eql(u8, std.mem.span(name), "get_width") and method.parameterCount() == 0) found_width = true;
+    }
+    if (screen_count == 0) return -81;
+    if (!found_width) return -82;
+
+    const vector = runtime_value.findClass("UnityEngine", "Vector3") catch return -83;
+    var vector_methods = vector.methods();
+    var found_dot = false;
+    while (vector_methods.next()) |method| {
+        const name = method.name() orelse continue;
+        if (std.mem.eql(u8, std.mem.span(name), "Dot") and method.parameterCount() == 2) found_dot = true;
+    }
+    if (!found_dot) return -84;
+    return 1;
+}
+
+export fn dev_selftest_methods() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestMethods(runtime_value);
+}
+
 export fn dev_selftest_struct_return() callconv(.c) i32 {
     Hooks.init() catch return -1;
     const runtime_value = runtime() catch |err| return errorCode(err);

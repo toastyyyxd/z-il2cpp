@@ -47,6 +47,21 @@ pub const Class = struct {
         return .{ .runtime = self.runtime, .pointer = pointer };
     }
 
+    pub fn methods(self: Class) MethodIterator {
+        return .{ .runtime = self.runtime, .class_pointer = self.pointer };
+    }
+
+    pub const MethodIterator = struct {
+        runtime: Runtime,
+        class_pointer: ?*anyopaque,
+        iterator: ?*anyopaque = null,
+
+        pub fn next(self: *MethodIterator) ?Method {
+            const pointer = self.runtime.exports.class_get_methods(self.class_pointer, &self.iterator) orelse return null;
+            return .{ .runtime = self.runtime, .pointer = pointer };
+        }
+    };
+
     pub fn fields(self: Class) FieldIterator {
         return .{ .runtime = self.runtime, .class_pointer = self.pointer };
     }
