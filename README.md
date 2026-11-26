@@ -33,8 +33,9 @@ Backend feature coverage:
 | permanent wrapper with atomic disable | no | no | yes | no |
 | aligned atomic entry patch | no | 4-byte store | yes | no |
 | method pointer hooks | no | yes | yes | yes |
+| mmap-chunked hook metadata | no | yes | yes | yes |
 
-Pooling, code caves, permanent wrappers, and atomic entry patches are Linux x86_64 only. `Hooks.setCodeCaves` is a no-op on the other backends. On Linux x86_64 and arm64, hook metadata grows in mmap chunks; there is no fixed hook count. Android and Linux arm64 still allocate one page per hook.
+Pooling, code caves, permanent wrappers, and atomic entry patches are Linux x86_64 only. `Hooks.setCodeCaves` is a no-op on the other backends. Hook metadata grows in mmap chunks on Android, Linux x86_64, and Linux aarch64; there is no fixed hook count. Android and Linux arm64 allocate one executable page per hook. Windows storage is managed by MinHook.
 
 ## Build
 
@@ -221,7 +222,7 @@ The probe is loaded into a debuggable test build of your own app. A constructor 
 
 Validated on arm64 Android without root: native export hooks, method pointer hooks, and frame hooks.
 
-Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
+Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead. Hook metadata uses mmap chunks, so the hook count is not fixed.
 
 The first instruction is classified before patching:
 
@@ -286,6 +287,7 @@ src/platform.zig           platform constants
 src/arm64.zig              arm64 instruction classification
 src/backend/minhook.zig    Windows x64 hook backend
 src/backend/arm64.zig      AArch64 hook backend
+src/backend/Chunked.zig    shared mmap-backed metadata table
 src/backend/x86_64_linux.zig Linux x86_64 hook backend
 src/x86_64.zig             x86_64 instruction decoder
 src/Elf.zig                ELF symbol resolver
