@@ -44,7 +44,7 @@ FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll scripts/smoke.sh
 GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll scripts/ingame.sh
 ```
 
-Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64 and Android arm64. Game directory needs the winhttp proxy deployed.
+Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64, Linux x86_64, and Android arm64. Game directory needs the winhttp proxy deployed.
 
 ## Dev loop
 
@@ -63,10 +63,11 @@ Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a
 The library API is `z_il2cpp.Hooks`. Backends:
 
 - Windows x64: vendored MinHook, code hooks
+- Linux x86_64: inline code hooks for native functions, method pointer hooks for managed methods
 - AArch64: inline code hooks for native functions, method pointer hooks for managed methods
 - other targets: stub, `HookUnsupported`
 
-Managed methods on AArch64 are hooked by replacing `MethodInfo.methodPointer`. The original pointer is called directly from the detour. No instruction patch, no trampoline.
+Managed methods on AArch64 and Linux x86_64 can be hooked by replacing `MethodInfo.methodPointer`. The original pointer is called directly from the detour. No instruction patch, no trampoline.
 
 ```zig
 const Signature = fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
@@ -120,7 +121,7 @@ Generic and inflated methods have a different entry ABI. Filter them out before 
 - non-static methods
 - non-generic and non-inflated classes and methods
 
-In-game result: 659887 native detour calls in about 2 seconds, originals executed, game alive, hooks removed cleanly. No JS runs per call. This is the native execution model.
+In-game result: 659887 native detour calls in about 2 seconds, originals executed, game alive, hooks removed cleanly. No JS runs per call.
 
 
 ## Development DLL loop
@@ -156,7 +157,7 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 
 - Native code hooks have no thread quiescence. Install them at startup. Another core can keep executing the old instruction until its instruction cache is invalidated. Trampoline pages stay mapped so the old path remains valid.
 - Stub pages are retained after detach because other threads can still be inside them. Repeated native hook install and removal leaks one page per cycle.
-- MethodInfo layout, GC handle size, and array header size are validated against one game and Unity 6000.3. Probe each new build before relying on them.
+- MethodInfo layout, GC handle size, and array header size are validated against Unity 6000.3 and 2022.3 builds. Probe each new build before relying on them.
 - Code patches and MinHook are visible to anti-cheat tooling. Do not use this in protected games.
 - Linux x86_64 is validated in game, including native code hooks and managed method pointer hooks. Linux aarch64 is not validated.
 
@@ -238,9 +239,9 @@ All eight sampled `Update` methods were plain. Unsupported forms are about 1.6 p
 
 Native function hooks patch through `/proc/self/mem` first. Page protection is not changed on that path. The `mprotect` RWX fallback is used only when the memory write fails.
 
-`Hooks` selects the backend by target: MinHook on Windows x64, inline arm64 on AArch64, stub elsewhere. Managed arm64 hooks use method pointer replacement instead of code patches.
+`Hooks` selects the backend by target: MinHook on Windows x64, inline x86_64 on Linux x86_64, inline arm64 on AArch64, stub elsewhere. Managed hooks use method pointer replacement where the backend supports it.
 
-Next: PC-relative prologue relocation if a game needs it.
+Next for AArch64: PC-relative prologue relocation if a game needs it.
 
 ## Linux
 
@@ -319,7 +320,7 @@ src/backend/arm64.zig      AArch64 hook backend
 src/backend/x86_64_linux.zig Linux x86_64 hook backend
 src/x86_64.zig             x86_64 instruction decoder
 src/Elf.zig                ELF symbol resolver
-src/posix.zig            Android and Linux loader (waits, dlopen, symbol)
+src/posix.zig              Android and Linux loader (waits, dlopen, symbol)
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set
@@ -328,7 +329,7 @@ tools/strip_pe_tls.zig     PE TLS directory strip
 tools/gen_manifest.zig     artifact manifest (name, size, sha256)
 tests/smoke/host.zig       smoke host, loads frida-gadget.dll
 tests/smoke/agent.js       smoke agent, maps artifact and asserts ABI
-tests/support/frames.zig    shared Update hook helper
+tests/support/frames.zig   shared Update hook helper
 tests/ingame/probe.js      dev probe agent
 tests/ingame/agent.js      one-shot probe agent
 scripts/smoke.sh           smoke orchestration
@@ -550,9 +551,9 @@ Artifacts by target:
 Host side.
 
 - allocate and zero `State`
-- allocate `Loader` with two loader pointers: Windows imports, or `zil2cpp.android.loader` on Android
+- allocate `Loader` with two loader pointers: Windows imports, `zil2cpp.android.loader` on Android, or `zil2cpp.linux.loader` on Linux
 - allocate scratch, at least 1024 bytes, 4096 recommended
-- on Android, the library has no `libc` dependency; all file and log access goes through raw syscalls
+- on Android and Linux, the shared library has no `libc` dependency; all file and log access goes through raw syscalls
 - retain the module wrapper, GC unmaps it
 - strip PE TLS directory, required for Wine/Proton
 - call from one thread
@@ -606,4 +607,4 @@ zig-out/shared/manifest.json
 
 ## AI disclosure
 
-Generated almost entirely by an AI coding agent. Human direction and testing on Windows and Android guided it. Short development cycles were the primary factor.
+Generated almost entirely by an AI coding agent. Human direction and testing on Windows, Android, and Linux guided it. Short development cycles were the primary factor.
