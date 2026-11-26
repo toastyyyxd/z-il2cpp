@@ -128,6 +128,7 @@ fn errorCode(err: Error) i32 {
         error.ImageNotFound => -24,
         error.IndexOutOfBounds => -25,
         error.SizeMismatch => -26,
+        error.GenericMethodNotSupported => -27,
     };
 }
 

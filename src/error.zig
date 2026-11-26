@@ -25,4 +25,5 @@ pub const Error = error{
     ImageNotFound,
     IndexOutOfBounds,
     SizeMismatch,
+    GenericMethodNotSupported,
 };

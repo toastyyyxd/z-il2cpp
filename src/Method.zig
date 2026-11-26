@@ -96,6 +96,7 @@ pub const Method = struct {
         };
         const argument_count = argument_types.len;
         const method_pointer = self.pointer orelse return error.MethodNotFound;
+        if (self.isGeneric()) return error.GenericMethodNotSupported;
         const expected = self.runtime.exports.method_get_param_count(method_pointer);
         if (argument_count != expected) return error.ArgumentCountMismatch;
 

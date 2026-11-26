@@ -246,6 +246,8 @@ switch (outcome) {
 
 Message and stack trace come from the managed `Exception.Message` and `Exception.StackTrace` getters. `Method.invoke` still collapses to `error.ManagedException`.
 
+Generics. `Runtime.classOf(object)` returns the inflated class of an object. `Class.isGeneric` and `Class.isInflated` detect generic definitions. Invoking a generic method definition returns `error.GenericMethodNotSupported` instead of crashing. Inflated methods can be invoked.
+
 Managed arrays use `z_il2cpp.Array`.
 
 ```zig
@@ -331,6 +333,7 @@ Error codes.
 -24 image not found
 -25 index out of bounds
 -26 element size mismatch
+-27 generic method not supported
 -16 virtual method not supported
 -17 invalid parameter count
 ```

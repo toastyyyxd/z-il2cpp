@@ -65,6 +65,7 @@ fn errorCode(err: Error) i32 {
         error.ImageNotFound => -24,
         error.IndexOutOfBounds => -25,
         error.SizeMismatch => -26,
+        error.GenericMethodNotSupported => -27,
     };
 }
 
@@ -207,6 +208,37 @@ fn selftestArrays(runtime_value: Runtime) i32 {
     const empty = names.get(?*anyopaque, 1) catch return -124;
     if (empty != null) return -125;
     return 1;
+}
+
+fn selftestGenerics(runtime_value: Runtime) i32 {
+    const text = zil2cpp.String.fromUtf8(runtime_value, "generic-class") catch return -130;
+    const text_class = runtime_value.classOf(text.pointer) catch return -131;
+    const class_name = text_class.name() orelse return -132;
+    if (!std.mem.eql(u8, std.mem.span(class_name), "String")) return -133;
+
+    const list = runtime_value.findClass("System.Collections.Generic", "List`1") catch return -134;
+    if (!list.isGeneric()) return -135;
+    const array_class = runtime_value.findClass("System", "Array") catch return -139;
+    var methods = array_class.methods();
+    var generic_method = false;
+    while (methods.next()) |method| {
+        if (method.isGeneric()) {
+            generic_method = true;
+            const outcome = method.invoke(.{}, void);
+            if (outcome) |_| return -136 else |err| {
+                if (err != error.GenericMethodNotSupported) return -137;
+            }
+            break;
+        }
+    }
+    if (!generic_method) return -138;
+    return 1;
+}
+
+export fn dev_selftest_generics() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestGenerics(runtime_value);
 }
 
 export fn dev_selftest_arrays() callconv(.c) i32 {

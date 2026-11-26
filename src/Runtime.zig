@@ -32,6 +32,12 @@ pub const Runtime = struct {
         };
     }
 
+    pub fn classOf(self: Runtime, object: ?*anyopaque) Error!Class {
+        const instance = object orelse return error.NullObject;
+        const pointer = self.exports.object_get_class(instance) orelse return error.ClassNotFound;
+        return .{ .runtime = self, .pointer = pointer };
+    }
+
     pub fn findImage(self: Runtime, name: [:0]const u8) Error!Image {
         const domain = self.domain orelse return error.NoDomain;
         var count: usize = 0;
