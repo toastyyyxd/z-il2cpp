@@ -73,6 +73,8 @@ fn errorCode(err: Error) i32 {
         error.InvalidBuffer => -22,
         error.HookFailed => -23,
         error.ImageNotFound => -24,
+        error.IndexOutOfBounds => -25,
+        error.SizeMismatch => -26,
     };
 }
 

@@ -246,6 +246,22 @@ switch (outcome) {
 
 Message and stack trace come from the managed `Exception.Message` and `Exception.StackTrace` getters. `Method.invoke` still collapses to `error.ManagedException`.
 
+Managed arrays use `z_il2cpp.Array`.
+
+```zig
+const int_class = try runtime.findClass("System", "Int32");
+const numbers = try int_class.newArray(4);
+try numbers.set(i32, 0, 42);
+const value = try numbers.get(i32, 0);
+
+const returned = try method.invoke(.{}, ?*anyopaque);
+const names = z_il2cpp.Array{ .runtime = runtime, .pointer = returned };
+const count = try names.length();
+const first = try names.get(?*anyopaque, 0);
+```
+
+Element size comes from IL2CPP. Element data starts at the x64 array header offset, 32 bytes. Layout is checked against `@sizeOf`.
+
 `Method.isVirtual`, `Method.resolveVirtual`, and `Method.virtualEntryPoint` cover overrides. `Hooks.hookVirtualMethod` resolves the override for an instance and hooks it.
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.
@@ -313,6 +329,8 @@ Error codes.
 -22 invalid buffer
 -23 hook failed
 -24 image not found
+-25 index out of bounds
+-26 element size mismatch
 -16 virtual method not supported
 -17 invalid parameter count
 ```

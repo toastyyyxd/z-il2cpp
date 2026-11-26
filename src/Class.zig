@@ -2,6 +2,7 @@ const std = @import("std");
 const Runtime = @import("Runtime.zig").Runtime;
 const Method = @import("Method.zig").Method;
 const Field = @import("Field.zig").Field;
+const Array = @import("Array.zig").Array;
 const Error = @import("error.zig").Error;
 
 pub const Class = struct {
@@ -44,6 +45,12 @@ pub const Class = struct {
         if (parameter_count > std.math.maxInt(i32)) return error.InvalidParameterCount;
         const pointer = self.runtime.exports.class_get_method_from_name(class_pointer, method_name.ptr, @intCast(parameter_count)) orelse return error.MethodNotFound;
         try self.runtime.cache.putMethod(self.pointer, method_name, parameter_count, pointer);
+        return .{ .runtime = self.runtime, .pointer = pointer };
+    }
+
+    pub fn newArray(self: Class, length: usize) Error!Array {
+        const class_pointer = self.pointer orelse return error.ClassNotFound;
+        const pointer = self.runtime.exports.array_new(class_pointer, length) orelse return error.InvokeFailed;
         return .{ .runtime = self.runtime, .pointer = pointer };
     }
 

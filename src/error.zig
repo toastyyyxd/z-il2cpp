@@ -23,4 +23,6 @@ pub const Error = error{
     InvalidBuffer,
     HookFailed,
     ImageNotFound,
+    IndexOutOfBounds,
+    SizeMismatch,
 };

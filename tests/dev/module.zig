@@ -63,6 +63,8 @@ fn errorCode(err: Error) i32 {
         error.InvalidBuffer => -22,
         error.HookFailed => -23,
         error.ImageNotFound => -24,
+        error.IndexOutOfBounds => -25,
+        error.SizeMismatch => -26,
     };
 }
 
@@ -177,6 +179,40 @@ fn selftestMethods(runtime_value: Runtime) i32 {
     }
     if (!found_dot) return -84;
     return 1;
+}
+
+fn selftestArrays(runtime_value: Runtime) i32 {
+    const int_class = runtime_value.findClass("System", "Int32") catch return -110;
+    const numbers = int_class.newArray(4) catch return -111;
+    inline for (0..4) |index| {
+        numbers.set(i32, index, @as(i32, @intCast(index * 10 + 10))) catch return -112;
+    }
+    inline for (0..4) |index| {
+        const expected: i32 = @intCast(index * 10 + 10);
+        const actual = numbers.get(i32, index) catch return -113;
+        if (actual != expected) return -114;
+    }
+
+    const string_class = runtime_value.findClass("System", "String") catch return -115;
+    const names = string_class.newArray(2) catch return -116;
+    const text = zil2cpp.String.fromUtf8(runtime_value, "array-string") catch return -117;
+    names.set(?*anyopaque, 0, text.pointer) catch return -118;
+    names.set(?*anyopaque, 1, null) catch return -119;
+    const stored = names.get(?*anyopaque, 0) catch return -120;
+    if (stored == null) return -121;
+    const stored_text = zil2cpp.String{ .runtime = runtime_value, .pointer = stored };
+    var buffer: [64]u8 = undefined;
+    const written = stored_text.toUtf8(buffer[0..]) catch return -122;
+    if (!std.mem.eql(u8, written, "array-string")) return -123;
+    const empty = names.get(?*anyopaque, 1) catch return -124;
+    if (empty != null) return -125;
+    return 1;
+}
+
+export fn dev_selftest_arrays() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestArrays(runtime_value);
 }
 
 export fn dev_selftest_methods() callconv(.c) i32 {
