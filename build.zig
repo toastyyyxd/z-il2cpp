@@ -205,6 +205,32 @@ pub fn build(b: *std.Build) void {
     native_proxy_step.dependOn(&native_proxy_install.step);
     b.getInstallStep().dependOn(&native_proxy_install.step);
 
+    const android_target = b.resolveTargetQuery(.{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android });
+    const android_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = android_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = false,
+    });
+    const android_module = b.createModule(.{
+        .root_source_file = b.path("tests/android/module.zig"),
+        .target = android_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = false,
+    });
+    android_module.addImport("z_il2cpp", android_lib);
+    const android_artifact = b.addLibrary(.{
+        .name = "zil2cpp",
+        .linkage = .dynamic,
+        .root_module = android_module,
+    });
+    const android_install = b.addInstallArtifact(android_artifact, .{
+        .dest_dir = .{ .override = .{ .custom = "android" } },
+    });
+    const android_step = b.step("android", "Build the Android arm64 library");
+    android_step.dependOn(&android_install.step);
+    b.getInstallStep().dependOn(&android_install.step);
+
     const test_step = b.step("test", "Run unit tests");
 
     const root_tests = b.addTest(.{ .root_module = mod });

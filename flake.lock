@@ -20,6 +20,22 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1795234589,
+        "narHash": "sha256-f/VVvxf5RsQgWVhUtefoca5ktVg0DA2bnkMOcmSnozo=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "2786a2a72088ecf32aea5b3ec52099e6a7cff78f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1795591413,
         "narHash": "sha256-D4myDxqCnbNzTGCEeWWcRLah7fVEmcZXrlvU1xo0bAs=",
         "owner": "nixos",
@@ -33,7 +49,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
+    "nixpkgs_3": {
       "locked": {
         "lastModified": 1795258312,
         "narHash": "sha256-IEuDsf80ubivfpidbRsIm30HVo7PZIdZt1stRsbaY4Y=",
@@ -51,6 +67,7 @@
     },
     "root": {
       "inputs": {
+        "nixpkgs": "nixpkgs",
         "zig2nix": "zig2nix",
         "zls-overlay": "zls-overlay"
       }
@@ -94,7 +111,7 @@
     "zig2nix": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs_2"
       },
       "locked": {
         "lastModified": 1795592545,
@@ -112,7 +129,7 @@
     },
     "zls-overlay": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": "nixpkgs_3",
         "zig-flake": "zig-flake"
       },
       "locked": {

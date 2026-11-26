@@ -4,9 +4,10 @@
   inputs = {
     zig2nix.url = "github:cloudef/zig2nix";
     zls-overlay.url = "github:zigtools/zls";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { zig2nix, zls-overlay, ... }:
+  outputs = { zig2nix, zls-overlay, nixpkgs, ... }:
     let
       flake-utils = zig2nix.inputs.flake-utils;
     in
@@ -28,6 +29,9 @@
             pkgs.curl
             pkgs.xz
             pkgs.git
+
+            pkgs.apksigner
+            pkgs.apktool
           ];
 
           shellHook = ''
@@ -36,6 +40,7 @@
             echo "  node:  $(node --version 2>/dev/null || echo unavailable)"
             echo "  frida: $(frida --version 2>/dev/null || echo unavailable)"
             echo "  zls:   $(zls --version 2>/dev/null || echo unavailable)"
+            echo "  apksigner: $(command -v apksigner 2>/dev/null || echo unavailable)"
           '';
         };
       });

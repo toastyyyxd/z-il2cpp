@@ -125,6 +125,27 @@ GAME_DIR=/path/to/game scripts/native-loader.sh
 
 Expected: all selftests status 1 in the dev probe. Native loader writes `{"ok": true ...}` with width, hooks, frames, exception. No Frida module in the native loader run.
 
+## Android arm64
+
+The library builds for `aarch64-linux-android` without the Android NDK.
+
+```sh
+zig build android
+```
+
+Output: `zig-out/android/libzil2cpp.so`. No dynamic dependencies. Raw syscalls for file and log access. Loader symbols come from `/proc/self/maps` and the ELF dynamic table. IL2CPP exports come from `dlopen` and `dlsym`.
+
+The probe loads the library into a repackaged split APK. `libmain.so` gains a `libzil2cpp.so` dependency. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. Results go to `/data/data/<package>/zil2cpp-log.txt`, read with `run-as`.
+
+```sh
+a private test harness
+```
+
+Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`.
+
+
+Next: arm64 inline hook backend for `Update` hooks.
+
 ## Native loader
 
 No Frida. The game loads the mod DLL itself.
