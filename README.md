@@ -192,6 +192,13 @@ zig build android -Dandroid-log-path=/path/inside/the/app/zil2cpp-log.txt
 ```
 
 Load the probe into a debuggable test build of your own app, then read the log.
+
+```sh
+scripts/android-probe.sh --base-apk app.apk --split-apk split.apk \
+  --keystore test.keystore --package com.example.app
+```
+
+Optional manifest edits are available with `--replace-class OLD=NEW` and `--remove-activity NAME` for builds you are authorized to modify.
 Expected: probe writes its result and the process stays alive.
 
 ## Android arm64
@@ -304,6 +311,7 @@ tests/support/frames.zig   shared Update hook helper
 tests/ingame/probe.js      dev probe agent
 tests/ingame/agent.js      one-shot probe agent
 scripts/smoke.sh           smoke orchestration
+scripts/android-probe.sh   APK instrumentation helper
 scripts/session.sh         persistent listen-mode game session
 scripts/probe.py           host probe runner
 scripts/ingame.sh          one-shot probe orchestration
