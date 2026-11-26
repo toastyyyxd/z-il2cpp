@@ -57,27 +57,27 @@ MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
 Managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build.
 
-`z_il2cpp.MinHook` wraps MinHook with typed hooks:
+`z_il2cpp.Hooks` provides typed hooks.
 
 ```zig
-var hook: ?MinHook.TypedHook(fn (f32) callconv(.c) void) = null;
+var slot: Hooks.Slot(fn (f32) callconv(.c) void) = .{};
 
 fn detour(value: f32) callconv(.c) void {
-    seen = value;
-    hook.?.original(value);
+    const context = slot.context;
+    slot.original()(value);
 }
 
-hook = try MinHook.TypedHook(fn (f32) callconv(.c) void).install(address, &detour);
-hook.?.detach();
+try slot.install(address, &detour, context);
+slot.detach();
 ```
 
-Detour signatures match the target. Arguments and return values are ordinary Zig parameters and results.
+Detour signatures match the target. Arguments and return values are ordinary Zig parameters and results. `Hook` and `Slot` carry an optional context pointer.
 
 Generic and inflated methods have a different entry ABI. Filter them out before hooking, or pass the hidden method context argument explicitly.
 
 ## Native frame execution
 
-`tests/dev` hooks up to 16 `Update` methods from `Assembly-CSharp.dll`:
+`tests/dev` hooks up to 8 `Update` methods from `Assembly-CSharp.dll`:
 
 - classes deriving from `MonoBehaviour`
 - non-static methods
@@ -97,6 +97,33 @@ GAME_DIR=/path/to/game scripts/dev-probe.sh
 Iteration: build, copy, load, hook selftest, unload. About 0.26 seconds cached.
 
 Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks are removed.
+
+## Thread policy
+
+- One `Runtime` and one scratch buffer per thread. The cache is not synchronized.
+- `Runtime.init` attaches the calling thread.
+- `Runtime.attachCurrentThread` attaches later threads before il2cpp calls.
+- Detour callbacks run on game threads. Call `attachCurrentThread` once, then use a thread-local runtime.
+- GC handles are process-wide. Create and release them on attached threads.
+
+## Platform seam
+
+- `src/platform.zig`: pointer size, method entry offsets, array header size, GC handle size.
+- `src/backend/minhook.zig`: hook backend. Windows x64 only today.
+- `z_il2cpp.Hooks` stays the same when Dobby replaces the backend on arm64.
+
+## Acceptance tests
+
+```sh
+zig build test
+zig build fmt
+FRIDA_GADGET=/path/to/gadget.dll scripts/smoke.sh
+scripts/hooks-smoke.sh
+GAME_DIR=/path/to/game scripts/dev-probe.sh
+GAME_DIR=/path/to/game scripts/native-loader.sh
+```
+
+Expected: all selftests status 1 in the dev probe. Native loader writes `{"ok": true ...}` with width, hooks, frames, exception. No Frida module in the native loader run.
 
 ## Native loader
 
@@ -129,8 +156,12 @@ src/Runtime.zig            runtime init, thread attach, class lookup
 src/Class.zig              class lookup, method and field lookup
 src/Method.zig             managed invocation
 src/Field.zig              field read and write
+src/Array.zig              managed arrays
+src/Exception.zig          managed exception detail
 src/Image.zig              image enumeration
-src/Hooks.zig              typed hook API, method entry hooks
+src/Hooks.zig              typed hooks, slots, method entry hooks
+src/platform.zig           platform constants
+src/backend/minhook.zig    hook backend
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set

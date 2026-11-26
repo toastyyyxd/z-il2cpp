@@ -20,16 +20,15 @@ pub const Runtime = struct {
         const module = loader.get_module_handle(&game_assembly_name) orelse return error.ModuleNotFound;
         const exports = try Exports.resolve(loader, module);
         const domain = exports.domain_get() orelse return error.NoDomain;
-        if (exports.thread_current() == null) {
-            _ = exports.thread_attach(domain);
-        }
         const cache = try Cache.init(scratch);
-        return .{
+        const runtime = Runtime{
             .loader = loader,
             .exports = exports,
             .domain = domain,
             .cache = cache,
         };
+        try runtime.attachCurrentThread();
+        return runtime;
     }
 
     pub fn classOf(self: Runtime, object: ?*anyopaque) Error!Class {
@@ -51,6 +50,12 @@ pub const Runtime = struct {
             }
         }
         return error.ImageNotFound;
+    }
+
+    pub fn attachCurrentThread(self: Runtime) Error!void {
+        if (self.exports.thread_current() != null) return;
+        const domain = self.domain orelse return error.NoDomain;
+        _ = self.exports.thread_attach(domain);
     }
 
     pub fn findClass(self: Runtime, namespace: [:0]const u8, name: [:0]const u8) Error!Class {

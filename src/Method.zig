@@ -2,6 +2,7 @@ const std = @import("std");
 const Runtime = @import("Runtime.zig").Runtime;
 const convert = @import("convert.zig");
 const Exception = @import("Exception.zig").Exception;
+const platform = @import("platform.zig");
 const Error = @import("error.zig").Error;
 
 pub const Method = struct {
@@ -42,12 +43,12 @@ pub const Method = struct {
 
     pub fn entryPoint(self: Method) Error!?*anyopaque {
         const info = self.pointer orelse return error.MethodNotFound;
-        return codePointerAt(info, 0);
+        return codePointerAt(info, platform.method_entry_offset);
     }
 
     pub fn virtualEntryPoint(self: Method) Error!?*anyopaque {
         const info = self.pointer orelse return error.MethodNotFound;
-        return codePointerAt(info, @sizeOf(usize));
+        return codePointerAt(info, platform.method_virtual_entry_offset);
     }
 
     fn codePointerAt(info: *anyopaque, offset: usize) ?*anyopaque {

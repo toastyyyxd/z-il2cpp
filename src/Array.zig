@@ -1,8 +1,9 @@
 const Runtime = @import("Runtime.zig").Runtime;
 const convert = @import("convert.zig");
+const platform = @import("platform.zig");
 const Error = @import("error.zig").Error;
 
-pub const header_size = @sizeOf(usize) * 4;
+pub const header_size = platform.array_header_size;
 
 pub const Array = struct {
     runtime: Runtime,

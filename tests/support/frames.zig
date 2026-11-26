@@ -12,12 +12,12 @@ var slot_counts: [limit]u32 = @splat(0);
 
 fn Slot(comptime index: usize) type {
     return struct {
-        var hook: ?Hooks.Hook(fn (?*anyopaque) callconv(.c) void) = null;
+        var handle: Hooks.Slot(fn (?*anyopaque) callconv(.c) void) = .{};
         fn detour(instance: ?*anyopaque) callconv(.c) void {
             calls +%= 1;
             slot_counts[index] +%= 1;
             if (skip_original) return;
-            if (hook) |*active| active.original(instance);
+            handle.original()(instance);
         }
     };
 }
@@ -30,11 +30,10 @@ const detours = blk: {
 
 fn installSlot(slot: usize, address: ?*anyopaque) bool {
     if (address == null) return false;
-    const signature = fn (?*anyopaque) callconv(.c) void;
     var installed_here = false;
     inline for (0..limit) |index| {
         if (slot == index) {
-            Slot(index).hook = Hooks.Hook(signature).install(address.?, &Slot(index).detour) catch return false;
+            Slot(index).handle.install(address.?, &Slot(index).detour, null) catch return false;
             installed_here = true;
         }
     }
@@ -81,10 +80,7 @@ pub fn reset() void {
 
 pub fn remove() void {
     inline for (0..limit) |index| {
-        if (Slot(index).hook) |*hook| {
-            hook.detach();
-            Slot(index).hook = null;
-        }
+        Slot(index).handle.detach();
     }
     installed = 0;
 }
