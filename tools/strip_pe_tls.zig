@@ -85,14 +85,12 @@ pub fn main(init: std.process.Init) !void {
     const info = try stripTls(data);
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = output_path, .data = data });
 
-    if (info.already_stripped) {
-        std.debug.print("strip-pe-tls: {s}: no TLS directory; copied to {s}\n", .{ input_path, output_path });
-    } else {
-        std.debug.print(
-            "strip-pe-tls: {s}: removed TLS directory (rva=0x{x} size={d}) -> {s}\n",
-            .{ input_path, info.rva, info.size, output_path },
-        );
-    }
+    var message: [256]u8 = undefined;
+    const text = if (info.already_stripped)
+        std.fmt.bufPrint(&message, "strip-pe-tls: {s}: no TLS directory; copied to {s}\n", .{ input_path, output_path }) catch return
+    else
+        std.fmt.bufPrint(&message, "strip-pe-tls: {s}: removed TLS directory (rva=0x{x} size={d}) -> {s}\n", .{ input_path, info.rva, info.size, output_path }) catch return;
+    try Io.File.writeStreamingAll(.stdout(), io, text);
 }
 
 const testing = std.testing;

@@ -51,7 +51,9 @@ pub fn main(init: std.process.Init) !void {
 
     try json.appendSlice(arena, "\n  ]\n}\n");
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = args[1], .data = json.items });
-    std.debug.print("gen-manifest: wrote {s} ({d} entries)\n", .{ args[1], (args.len - 2) / 2 });
+    var message: [256]u8 = undefined;
+    const text = std.fmt.bufPrint(&message, "gen-manifest: wrote {s} ({d} entries)\n", .{ args[1], (args.len - 2) / 2 }) catch return;
+    try Io.File.writeStreamingAll(.stdout(), io, text);
 }
 
 const testing = std.testing;
