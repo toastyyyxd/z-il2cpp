@@ -98,10 +98,28 @@ Iteration: build, copy, load, hook selftest, unload. About 0.26 seconds cached.
 
 Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks are removed.
 
+## Native loader
+
+No Frida. The game loads the mod DLL itself.
+
+- `tests/native/proxy.zig`: minimal winhttp proxy. Forwards the four functions UnityPlayer imports to `winhttp_orig.dll`.
+- `tests/native/module.zig`: native mod DLL. Exports `zil2cpp_start`.
+- A thread in the proxy DllMain loads `zil2cpp.dll` and calls `zil2cpp_start`.
+- The mod DLL waits for `GameAssembly.dll`, hooks `il2cpp_init`, falls back after a timeout, then starts a bootstrap thread.
+- Bootstrap: runtime init, read `Screen.width`, install Update hooks, wait three seconds, write `zil2cpp-native-result.json`.
+
+```sh
+GAME_DIR=/path/to/game scripts/native-loader.sh
+```
+
+Requirements: `winhttp_orig.dll` in the game directory. Write access to the game directory. No gadget, no agent script, no JS.
+
+In-game result: about 10 seconds end to end. Width 1914. 8 Update hooks. 1516 native frame calls in three seconds. No Frida module is loaded.
+
 ## Layout
 
 ```
-build.zig                  build steps: default, shared, smoke-host, hooks-host, hooks-spike, dev-dll, test, fmt
+build.zig                  build steps: default, shared, smoke-host, hooks-host, hooks-spike, dev-dll, native-proxy, native-dll, test, fmt
 src/root.zig               public Zig API
 src/Loader.zig             loader function pointers
 src/Exports.zig            il2cpp export table and resolution
@@ -125,6 +143,9 @@ scripts/probe.py           host probe runner
 scripts/ingame.sh          one-shot probe orchestration
 scripts/hooks-smoke.sh     game-free hook test
 scripts/dev-probe.sh       dev DLL loop
+scripts/native-loader.sh   Frida-free loader test
+tests/native/proxy.zig     winhttp proxy, loads the mod DLL
+tests/native/module.zig    native mod DLL, startup and frame hooks
 tests/dev/module.zig       dev DLL, managed hook selftest
 tests/dev/probe.js         dev DLL probe
 tests/hooks/host.zig       game-free MinHook test

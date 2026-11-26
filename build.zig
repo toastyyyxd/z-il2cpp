@@ -159,6 +159,48 @@ pub fn build(b: *std.Build) void {
     dev_dll_step.dependOn(&dev_dll_install.step);
     b.getInstallStep().dependOn(&dev_dll_install.step);
 
+    const native_proxy = b.addLibrary(.{
+        .name = "winhttp",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/native/proxy.zig"),
+            .target = hooks_target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+        }),
+    });
+    const native_proxy_install = b.addInstallArtifact(native_proxy, .{
+        .dest_dir = .{ .override = .{ .custom = "native" } },
+    });
+    const native_zil2cpp = b.addLibrary(.{
+        .name = "zil2cpp",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/native/module.zig"),
+            .target = hooks_target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+        }),
+    });
+    addMinHook(b, native_zil2cpp.root_module);
+    const native_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = hooks_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    native_zil2cpp.root_module.addImport("z_il2cpp", native_lib);
+    const native_zil2cpp_install = b.addInstallArtifact(native_zil2cpp, .{
+        .dest_dir = .{ .override = .{ .custom = "native" } },
+    });
+    const native_zil2cpp_step = b.step("native-dll", "Build the native mod DLL");
+    native_zil2cpp_step.dependOn(&native_zil2cpp_install.step);
+    b.getInstallStep().dependOn(&native_zil2cpp_install.step);
+
+    const native_proxy_step = b.step("native-proxy", "Build the winhttp proxy");
+    native_proxy_step.dependOn(&native_proxy_install.step);
+    b.getInstallStep().dependOn(&native_proxy_install.step);
+
     const test_step = b.step("test", "Run unit tests");
 
     const root_tests = b.addTest(.{ .root_module = mod });
