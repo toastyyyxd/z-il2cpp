@@ -5,10 +5,10 @@ const x86 = @import("../x86_64.zig");
 
 const page_size: usize = 4096;
 const patch_size: usize = 5;
-const max_hooks: usize = 4096;
+const entry_chunk_size: usize = 256;
 const slot_size: usize = 64;
 const slots_per_page: usize = page_size / slot_size;
-const max_pages: usize = 64;
+const page_chunk_size: usize = 32;
 const near_limit: usize = 1536 * 1024 * 1024;
 const trampoline_offset: usize = 24;
 const maps_size: usize = 1024 * 1024;
@@ -36,19 +36,37 @@ const Page = struct {
     refs: std.atomic.Value(u32) = .init(0),
 };
 
-pub const Prepared = struct {
-    slot: usize,
-    original: *const anyopaque,
-};
-
 const DataPage = struct {
     address: usize = 0,
     used: std.atomic.Value(u16) = .init(0),
 };
 
-var entries: [max_hooks]Entry = @splat(.{});
-var pages: [max_pages]Page = @splat(.{});
-var data_pages: [max_pages]DataPage = @splat(.{});
+pub const Prepared = struct {
+    slot: usize,
+    original: *const anyopaque,
+};
+
+const EntryChunk = struct {
+    entries: [entry_chunk_size]Entry = @splat(.{}),
+    next: ?*EntryChunk = null,
+};
+
+const PageChunk = struct {
+    pages: [page_chunk_size]Page = @splat(.{}),
+    next: ?*PageChunk = null,
+};
+
+const DataPageChunk = struct {
+    pages: [page_chunk_size]DataPage = @splat(.{}),
+    next: ?*DataPageChunk = null,
+};
+
+var entry_chunks: ?*EntryChunk = null;
+var entry_chunk_count: usize = 0;
+var page_chunks: ?*PageChunk = null;
+var page_chunk_count: usize = 0;
+var data_page_chunks: ?*DataPageChunk = null;
+var data_page_chunk_count: usize = 0;
 var maps_storage: [maps_size]u8 = undefined;
 
 const Cave = struct { start: usize, length: usize };
@@ -63,17 +81,36 @@ var cave_seed: u64 = 0;
 pub fn init() Error!void {}
 
 pub fn deinit() Error!void {
-    for (&pages) |*page| {
-        if (page.address == 0) continue;
-        _ = linux.munmap(@ptrFromInt(page.address), page_size);
-        if (page.fd >= 0) _ = linux.close(page.fd);
-        page.* = .{};
+    var page_chunk = page_chunks;
+    while (page_chunk) |current| : (page_chunk = current.next) {
+        for (current.pages) |page| {
+            if (page.address == 0) continue;
+            _ = linux.munmap(@ptrFromInt(page.address), page_size);
+            if (page.fd >= 0) _ = linux.close(page.fd);
+        }
     }
-    for (&data_pages) |*page| {
-        if (page.address == 0) continue;
-        _ = linux.munmap(@ptrFromInt(page.address), page_size);
-        page.* = .{};
+    var data_chunk = data_page_chunks;
+    while (data_chunk) |current| : (data_chunk = current.next) {
+        for (current.pages) |page| {
+            if (page.address == 0) continue;
+            _ = linux.munmap(@ptrFromInt(page.address), page_size);
+        }
     }
+    var entry_chunk = entry_chunks;
+    while (entry_chunk) |current| : (entry_chunk = current.next) {
+        _ = linux.munmap(@ptrCast(current), chunkMapSize(EntryChunk));
+    }
+    var all_page_chunk = page_chunks;
+    while (all_page_chunk) |current| : (all_page_chunk = current.next) {
+        _ = linux.munmap(@ptrCast(current), chunkMapSize(PageChunk));
+    }
+    var all_data_chunk = data_page_chunks;
+    while (all_data_chunk) |current| : (all_data_chunk = current.next) {
+        _ = linux.munmap(@ptrCast(current), chunkMapSize(DataPageChunk));
+    }
+    entry_chunks = null;
+    page_chunks = null;
+    data_page_chunks = null;
 }
 
 pub fn configure(code_caves: bool, entropy: u64) void {
@@ -108,7 +145,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
     const target = @intFromPtr(target_pointer orelse return error.HookFailed);
     const detour = @intFromPtr(detour_pointer orelse return error.HookFailed);
     const slot = freeSlot() orelse return error.HookFailed;
-    entries[slot] = .{};
+    entryAt(slot).* = .{};
 
     const patch_address = target;
 
@@ -150,7 +187,7 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
     if (delta < std.math.minInt(i32) or delta > std.math.maxInt(i32)) return error.HookUnsupported;
     std.mem.writeInt(i32, patch[1..5], @intCast(delta), .little);
 
-    entries[slot] = .{
+    entryAt(slot).* = .{
         .target = target,
         .patch_address = patch_address,
         .slot_address = allocation.address,
@@ -167,14 +204,14 @@ pub fn prepare(target_pointer: ?*anyopaque, detour_pointer: ?*anyopaque) Error!P
 }
 
 pub fn activate(prepared: Prepared) Error!void {
-    const entry = &entries[prepared.slot];
+    const entry = entryAt(prepared.slot);
     if (entry.active) return;
     writeEntryPatch(entry.patch_address, &entry.patch_bytes) catch return error.HookWriteFailed;
     entry.active = true;
 }
 
 pub fn cancel(prepared: Prepared) void {
-    const entry = &entries[prepared.slot];
+    const entry = entryAt(prepared.slot);
     if (entry.active) return;
     releaseSlot(.{
         .address = entry.slot_address,
@@ -188,20 +225,23 @@ pub fn cancel(prepared: Prepared) void {
 
 pub fn detach(target_pointer: ?*anyopaque) void {
     const target = @intFromPtr(target_pointer orelse return);
-    for (&entries) |*entry| {
-        if (entry.target != target) continue;
-        if (entry.active and entry.data_pointer != 0) {
-            @atomicStore(u64, @as(*u64, @ptrFromInt(entry.data_pointer)), entry.trampoline_address, .release);
+    var chunk = entry_chunks;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.entries) |*entry| {
+            if (entry.target != target) continue;
+            if (entry.active and entry.data_pointer != 0) {
+                @atomicStore(u64, @as(*u64, @ptrFromInt(entry.data_pointer)), entry.trampoline_address, .release);
+            }
+            releaseSlot(.{
+                .address = entry.slot_address,
+                .trampoline = entry.trampoline_address,
+                .offset = entry.slot_offset,
+                .page = entry.page,
+                .kind = entry.kind,
+            });
+            entry.* = .{};
+            return;
         }
-        releaseSlot(.{
-            .address = entry.slot_address,
-            .trampoline = entry.trampoline_address,
-            .offset = entry.slot_offset,
-            .page = entry.page,
-            .kind = entry.kind,
-        });
-        entry.* = .{};
-        return;
     }
 }
 
@@ -222,37 +262,40 @@ fn acquireSlot(target: usize, patch_address: usize, copied: usize) Error!Allocat
     if (caves_enabled and memoryPatchAvailable()) {
         if (caveAllocation(target, patch_address, copied)) |allocation| return allocation;
     }
-    for (&pages, 0..) |*page, index| {
-        if (page.address == 0 or !near(page.address, target)) continue;
-        const slot_index = page.used.fetchAdd(1, .monotonic);
-        if (slot_index >= slots_per_page) {
-            _ = page.used.fetchSub(1, .monotonic);
-            continue;
+    var chunk = page_chunks;
+    var base: usize = 0;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.pages, 0..) |*page, local| {
+            if (page.address == 0 or !near(page.address, target)) continue;
+            const slot_index = page.used.fetchAdd(1, .monotonic);
+            if (slot_index >= slots_per_page) {
+                _ = page.used.fetchSub(1, .monotonic);
+                continue;
+            }
+            _ = page.refs.fetchAdd(1, .monotonic);
+            const slot_address = page.address + @as(usize, slot_index) * slot_size;
+            return .{
+                .address = slot_address,
+                .trampoline = slot_address + trampoline_offset,
+                .offset = @as(usize, slot_index) * slot_size,
+                .page = base + local,
+                .kind = .pool,
+            };
         }
-        _ = page.refs.fetchAdd(1, .monotonic);
-        const slot_address = page.address + @as(usize, slot_index) * slot_size;
-        return .{
-            .address = slot_address,
-            .trampoline = slot_address + trampoline_offset,
-            .offset = @as(usize, slot_index) * slot_size,
-            .page = index,
-            .kind = .pool,
-        };
+        base += page_chunk_size;
     }
-    for (&pages, 0..) |*page, index| {
-        if (page.address != 0) continue;
-        const created = createPoolPage(target) catch continue;
-        page.* = created;
-        page.used.store(1, .monotonic);
-        _ = page.refs.fetchAdd(1, .monotonic);
-        return .{ .address = page.address, .trampoline = page.address + trampoline_offset, .page = index, .kind = .pool };
-    }
-    return error.HookNoMemory;
+    const index = allocPageIndex() orelse return error.HookNoMemory;
+    const page = pageAt(index);
+    const created = try createPoolPage(target);
+    page.* = created;
+    page.used.store(1, .monotonic);
+    _ = page.refs.fetchAdd(1, .monotonic);
+    return .{ .address = page.address, .trampoline = page.address + trampoline_offset, .page = index, .kind = .pool };
 }
 
 fn releaseSlot(allocation: Allocation) void {
-    if (allocation.kind == .pool and allocation.page < max_pages) {
-        _ = pages[allocation.page].refs.fetchSub(1, .monotonic);
+    if (allocation.kind == .pool) {
+        _ = pageAt(allocation.page).refs.fetchSub(1, .monotonic);
     }
 }
 
@@ -300,14 +343,15 @@ fn writeHookCode(allocation: Allocation, data_pointer: usize, patch_address: usi
         return;
     }
 
-    if (allocation.page >= max_pages or pages[allocation.page].fd < 0) return error.HookWriteFailed;
+    const page = pageAt(allocation.page);
+    if (page.fd < 0) return error.HookWriteFailed;
     var image: [slot_size]u8 = @splat(0);
     @memcpy(image[0..6], &[_]u8{ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 });
     const displacement = @as(i64, @intCast(data_pointer)) - @as(i64, @intCast(allocation.address + 6));
     if (displacement < std.math.minInt(i32) or displacement > std.math.maxInt(i32)) return error.HookUnsupported;
     writeIntToSliceAt(&image, 2, @as(i32, @intCast(displacement)));
     try fillTrampoline(image[trampoline_offset..], allocation.trampoline, patch_address, copied, absolute_destination);
-    const written = linux.pwrite(pages[allocation.page].fd, &image, slot_size, @intCast(allocation.offset));
+    const written = linux.pwrite(page.fd, &image, slot_size, @intCast(allocation.offset));
     if (@as(isize, @bitCast(written)) != @as(isize, @intCast(slot_size))) return error.HookWriteFailed;
 }
 
@@ -381,13 +425,16 @@ fn caveEligible(cave: Cave, target: usize, patch_address: usize, length: usize, 
     } else if (target - address >= near_limit) return false;
     if (address <= patch_address and patch_address < address + length) return false;
     if (exclude_length != 0 and address + length > exclude_start and address < exclude_start + exclude_length) return false;
-    for (entries) |entry| {
-        if (entry.target == 0) continue;
-        if (entry.slot_address != 0) {
-            if (address + length > entry.slot_address and address < entry.slot_address + 16) return false;
-        }
-        if (entry.trampoline_address != 0) {
-            if (address + length > entry.trampoline_address and address < entry.trampoline_address + 32) return false;
+    var chunk = entry_chunks;
+    while (chunk) |current| : (chunk = current.next) {
+        for (current.entries) |entry| {
+            if (entry.target == 0) continue;
+            if (entry.slot_address != 0) {
+                if (address + length > entry.slot_address and address < entry.slot_address + 16) return false;
+            }
+            if (entry.trampoline_address != 0) {
+                if (address + length > entry.trampoline_address and address < entry.trampoline_address + 32) return false;
+            }
         }
     }
     return true;
@@ -486,33 +533,34 @@ fn memoryPatchAvailable() bool {
 }
 
 fn acquireDataPointer(target: usize) Error!usize {
-    for (&data_pages) |*page| {
-        if (page.address == 0 or !near(page.address, target)) continue;
-        const index = page.used.fetchAdd(1, .monotonic);
-        if (index >= page_size / 8) {
-            _ = page.used.fetchSub(1, .monotonic);
-            continue;
-        }
-        return page.address + @as(usize, index) * 8;
-    }
-    for (&data_pages) |*page| {
-        if (page.address != 0) continue;
-        var attempt: usize = 0;
-        while (attempt < 192) : (attempt += 1) {
-            const distance = (@as(usize, 1) << 20) + attempt * (@as(usize, 1) << 24);
-            const candidate = if (attempt % 2 == 0) target -% distance else target +% distance;
-            const hint = candidate & ~(page_size - 1);
-            const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
-            const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
-            if (@as(isize, @bitCast(result)) < 0) continue;
-            if (!near(result, target)) {
-                _ = linux.munmap(@ptrFromInt(result), page_size);
+    var chunk = data_page_chunks;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.pages) |*page| {
+            if (page.address == 0 or !near(page.address, target)) continue;
+            const index = page.used.fetchAdd(1, .monotonic);
+            if (index >= page_size / 8) {
+                _ = page.used.fetchSub(1, .monotonic);
                 continue;
             }
-            page.* = .{ .address = result, .used = .init(1) };
-            return result;
+            return page.address + @as(usize, index) * 8;
         }
-        return error.HookNoMemory;
+    }
+    const page_index = allocDataPageIndex() orelse return error.HookNoMemory;
+    const page = dataPageAt(page_index);
+    var attempt: usize = 0;
+    while (attempt < 192) : (attempt += 1) {
+        const distance = (@as(usize, 1) << 20) + attempt * (@as(usize, 1) << 24);
+        const candidate = if (attempt % 2 == 0) target -% distance else target +% distance;
+        const hint = candidate & ~(page_size - 1);
+        const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+        const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
+        if (@as(isize, @bitCast(result)) < 0) continue;
+        if (!near(result, target)) {
+            _ = linux.munmap(@ptrFromInt(result), page_size);
+            continue;
+        }
+        page.* = .{ .address = result, .used = .init(1) };
+        return result;
     }
     return error.HookNoMemory;
 }
@@ -567,9 +615,92 @@ fn writeIntToSliceAt(buffer: []u8, offset: usize, value: anytype) void {
     @memcpy(buffer[offset..][0..@sizeOf(@TypeOf(value))], bytes);
 }
 
+fn entryAt(slot: usize) *Entry {
+    var chunk = entry_chunks.?;
+    var remaining = slot / entry_chunk_size;
+    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
+    return &chunk.entries[slot % entry_chunk_size];
+}
+
 fn freeSlot() ?usize {
-    for (&entries, 0..) |*entry, index| {
-        if (entry.target == 0) return index;
+    var chunk = entry_chunks;
+    var base: usize = 0;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.entries, 0..) |*entry, index| {
+            if (entry.target == 0) return base + index;
+        }
+        base += entry_chunk_size;
     }
-    return null;
+    const created = createChunk(EntryChunk) orelse return null;
+    if (entry_chunks) |first| {
+        var tail = first;
+        while (tail.next) |next| tail = next;
+        tail.next = created;
+    } else entry_chunks = created;
+    entry_chunk_count += 1;
+    return (entry_chunk_count - 1) * entry_chunk_size;
+}
+
+fn pageAt(index: usize) *Page {
+    var chunk = page_chunks.?;
+    var remaining = index / page_chunk_size;
+    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
+    return &chunk.pages[index % page_chunk_size];
+}
+
+fn dataPageAt(index: usize) *DataPage {
+    var chunk = data_page_chunks.?;
+    var remaining = index / page_chunk_size;
+    while (remaining > 0) : (remaining -= 1) chunk = chunk.next.?;
+    return &chunk.pages[index % page_chunk_size];
+}
+
+fn chunkMapSize(comptime T: type) usize {
+    return std.mem.alignForward(usize, @sizeOf(T), page_size);
+}
+
+fn createChunk(comptime T: type) ?*T {
+    const size = chunkMapSize(T);
+    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+    const result = linux.mmap(null, size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
+    if (@as(isize, @bitCast(result)) < 0) return null;
+    return @ptrCast(@alignCast(@as([*]u8, @ptrFromInt(result))));
+}
+
+fn allocPageIndex() ?usize {
+    var chunk = page_chunks;
+    var base: usize = 0;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.pages, 0..) |*page, index| {
+            if (page.address == 0) return base + index;
+        }
+        base += page_chunk_size;
+    }
+    const created = createChunk(PageChunk) orelse return null;
+    if (page_chunks) |first| {
+        var tail = first;
+        while (tail.next) |next| tail = next;
+        tail.next = created;
+    } else page_chunks = created;
+    page_chunk_count += 1;
+    return (page_chunk_count - 1) * page_chunk_size;
+}
+
+fn allocDataPageIndex() ?usize {
+    var chunk = data_page_chunks;
+    var base: usize = 0;
+    while (chunk) |current| : (chunk = current.next) {
+        for (&current.pages, 0..) |*page, index| {
+            if (page.address == 0) return base + index;
+        }
+        base += page_chunk_size;
+    }
+    const created = createChunk(DataPageChunk) orelse return null;
+    if (data_page_chunks) |first| {
+        var tail = first;
+        while (tail.next) |next| tail = next;
+        tail.next = created;
+    } else data_page_chunks = created;
+    data_page_chunk_count += 1;
+    return (data_page_chunk_count - 1) * page_chunk_size;
 }

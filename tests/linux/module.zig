@@ -72,6 +72,7 @@ fn hookTests(screen: zil2cpp.Class) void {
             _ = function();
             domain_hook = null;
             hook.detach();
+            _ = function();
             logFmt("code hook calls={d}\n", .{domain_calls});
         } else |err| {
             logFmt("code hook failed: {s}\n", .{@errorName(err)});
@@ -103,7 +104,8 @@ fn hookTests(screen: zil2cpp.Class) void {
         const coded = method.invoke(.{}, i32) catch -1;
         width_code_hook = null;
         hook.detach();
-        logFmt("method code hook calls={d} value={d}\n", .{ width_code_calls, coded });
+        const after_detach = method.invoke(.{}, i32) catch -1;
+        logFmt("method code hook calls={d} value={d} after={d}\n", .{ width_code_calls, coded, after_detach });
     } else |err| {
         logFmt("method code hook failed: {s}\n", .{@errorName(err)});
     }

@@ -34,7 +34,7 @@ Backend feature coverage:
 | aligned atomic entry patch | no | 4-byte store | yes | no |
 | method pointer hooks | no | yes | yes | yes |
 
-Pooling, code caves, permanent wrappers, and atomic entry patches are Linux x86_64 only. `Hooks.setCodeCaves` is a no-op on the other backends.
+Pooling, code caves, permanent wrappers, and atomic entry patches are Linux x86_64 only. `Hooks.setCodeCaves` is a no-op on the other backends. On Linux x86_64, hook and page metadata grow in mmap chunks; there is no fixed hook or page count. Android and Linux arm64 still have a 1024-hook limit.
 
 ## Build
 
