@@ -540,11 +540,13 @@ fn acquireDataPointer(target: usize) Error!usize {
 
 fn writeEntryPatch(address: usize, patch: *const [patch_size]u8) Error!void {
     if ((address & 7) != 0) return error.HookUnsupported;
+    // The page stays executable during the store. Removing EXEC would fault
+    // threads executing any function on the same page.
     const page = address & ~(page_size - 1);
     const word_pointer: *u64 = @ptrFromInt(address);
     var word = word_pointer.*;
     @memcpy(std.mem.asBytes(&word)[0..patch_size], patch);
-    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .WRITE = true }))) < 0) return error.HookProtectFailed;
+    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .WRITE = true, .EXEC = true }))) < 0) return error.HookProtectFailed;
     @atomicStore(u64, word_pointer, word, .release);
     if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .EXEC = true }))) < 0) return error.HookProtectFailed;
 }
@@ -556,7 +558,7 @@ fn writeBytes(address: usize, bytes: []const u8) Error!void {
     }
     const page = address & ~(page_size - 1);
     const offset = address - page;
-    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .WRITE = true }))) < 0) return error.HookProtectFailed;
+    if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .WRITE = true, .EXEC = true }))) < 0) return error.HookProtectFailed;
     @memcpy(slice(address, bytes.len), bytes);
     if (@as(isize, @bitCast(linux.mprotect(@ptrFromInt(page), page_size, .{ .READ = true, .EXEC = true }))) < 0) return error.HookProtectFailed;
     _ = offset;
