@@ -6,6 +6,8 @@ const Backend = if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64)
     @import("backend/minhook.zig")
 else if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .linux)
     @import("backend/arm64.zig")
+else if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux)
+    @import("backend/x86_64_linux.zig")
 else
     @import("backend/stub.zig");
 

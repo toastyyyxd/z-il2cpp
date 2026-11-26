@@ -258,6 +258,14 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     linux_probe_module.addImport("z_il2cpp", linux_probe_lib);
+    const linux_frames = b.createModule(.{
+        .root_source_file = b.path("tests/support/frames.zig"),
+        .target = linux_probe_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    linux_frames.addImport("z_il2cpp", linux_probe_lib);
+    linux_probe_module.addImport("frames", linux_frames);
     const linux_probe = b.addLibrary(.{
         .name = "zil2cpp_probe",
         .linkage = .dynamic,
@@ -269,6 +277,25 @@ pub fn build(b: *std.Build) void {
     const linux_probe_step = b.step("linux-probe", "Build the Linux LD_PRELOAD probe");
     linux_probe_step.dependOn(&linux_probe_install.step);
     b.getInstallStep().dependOn(&linux_probe_install.step);
+
+    const loader_native_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu });
+    const loader_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = loader_native_target,
+        .optimize = .Debug,
+        .link_libc = true,
+    });
+    const loader_module = b.createModule(.{
+        .root_source_file = b.path("tests/linux/loader_main.zig"),
+        .target = loader_native_target,
+        .optimize = .Debug,
+        .link_libc = true,
+    });
+    loader_module.addImport("z_il2cpp", loader_lib);
+    const loader_exe = b.addExecutable(.{ .name = "linux-loader", .root_module = loader_module });
+    const loader_install = b.addInstallArtifact(loader_exe, .{});
+    const loader_step = b.step("linux-loader", "Build the Linux loader test");
+    loader_step.dependOn(&loader_install.step);
 
     const test_step = b.step("test", "Run unit tests");
 

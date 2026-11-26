@@ -1,22 +1,23 @@
 const std = @import("std");
 const linux = std.os.linux;
 const zil2cpp = @import("z_il2cpp");
+const frames = @import("frames");
 
 const Runtime = zil2cpp.Runtime;
-const Loader = zil2cpp.Loader;
-const Elf = zil2cpp.Elf;
+const Hooks = zil2cpp.Hooks;
 
 const LOG_PATH = "/tmp/zil2cpp-linux.log";
-const RTLD_NOW: c_int = 2;
 
-extern fn dlopen(filename: [*:0]const u8, flags: c_int) callconv(.c) ?*anyopaque;
-extern fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) callconv(.c) ?*anyopaque;
+const DomainSignature = fn () callconv(.c) ?*anyopaque;
+const WidthSignature = fn (?*anyopaque) callconv(.c) i32;
 
 var log_fd: linux.fd_t = -1;
-var module_handle: ?*anyopaque = null;
 var scratch: [8192]u8 align(16) = @splat(0);
 var started = false;
-var maps_storage: [1024 * 1024]u8 = undefined;
+var domain_hook: ?Hooks.Hook(DomainSignature) = null;
+var domain_calls: usize = 0;
+var width_hook: ?Hooks.MethodPointerHook(WidthSignature) = null;
+var width_calls: usize = 0;
 
 fn openLog() void {
     const flags: linux.O = @bitCast(@as(u32, 0o1101));
@@ -43,85 +44,74 @@ fn sleepMilliseconds(milliseconds: u64) void {
     _ = linux.nanosleep(&request, null);
 }
 
-fn readMaps() []const u8 {
-    const flags: linux.O = @bitCast(@as(u32, 0));
-    const fd = linux.openat(linux.AT.FDCWD, "/proc/self/maps", flags, 0);
-    if (@as(isize, @bitCast(fd)) < 0) return maps_storage[0..0];
-    defer _ = linux.close(@intCast(fd));
-    var used: usize = 0;
-    while (used < maps_storage.len) {
-        const count = linux.read(@intCast(fd), maps_storage[used..].ptr, maps_storage.len - used);
-        if (@as(isize, @bitCast(count)) <= 0) break;
-        used += count;
+fn domainDetour() callconv(.c) ?*anyopaque {
+    domain_calls += 1;
+    return domain_hook.?.original();
+}
+
+fn widthDetour(method: ?*anyopaque) callconv(.c) i32 {
+    width_calls += 1;
+    return width_hook.?.original(method);
+}
+
+fn hookTests(screen: zil2cpp.Class) void {
+    if (zil2cpp.linux.symbol("il2cpp_domain_get")) |raw| {
+        const function: *const DomainSignature = @ptrCast(@alignCast(raw));
+        _ = function();
+        domain_calls = 0;
+        if (Hooks.Hook(DomainSignature).install(raw, &domainDetour)) |hook_value| {
+            var hook = hook_value;
+            domain_hook = hook;
+            _ = function();
+            domain_hook = null;
+            hook.detach();
+            logFmt("code hook calls={d}\n", .{domain_calls});
+        } else |err| {
+            logFmt("code hook failed: {s}\n", .{@errorName(err)});
+        }
+    } else logText("code hook: symbol missing\n");
+
+    const method = screen.findMethod("get_width", 0) catch |err| {
+        logFmt("width hook find failed: {s}\n", .{@errorName(err)});
+        return;
+    };
+    const before = method.invoke(.{}, i32) catch -1;
+    width_calls = 0;
+    if (Hooks.MethodPointerHook(WidthSignature).install(method, &widthDetour)) |hook_value| {
+        var hook = hook_value;
+        width_hook = hook;
+        const after = method.invoke(.{}, i32) catch -1;
+        width_hook = null;
+        hook.detach();
+        logFmt("method hook calls={d} before={d} after={d}\n", .{ width_calls, before, after });
+    } else |err| {
+        logFmt("method hook failed: {s}\n", .{@errorName(err)});
     }
-    return maps_storage[0..used];
 }
 
-fn waitForLibrary(name: []const u8, timeout_milliseconds: u64) ?usize {
-    var waited: u64 = 0;
-    while (waited < timeout_milliseconds) : (waited += 100) {
-        if (Elf.findLibraryBase(readMaps(), name)) |base| return base;
-        sleepMilliseconds(100);
-    }
-    return null;
-}
-
-fn libraryPath(name: []const u8, buffer: []u8) ?[:0]const u8 {
-    const maps = readMaps();
-    var line_start: usize = 0;
-    var index: usize = 0;
-    while (index <= maps.len) : (index += 1) {
-        const at_end = index == maps.len or maps[index] == '\n';
-        if (!at_end) continue;
-        const line = maps[line_start..index];
-        line_start = index + 1;
-        const position = std.mem.indexOf(u8, line, name) orelse continue;
-        var path_start = position;
-        while (path_start > 0 and line[path_start - 1] != ' ') path_start -= 1;
-        const path = line[path_start..];
-        if (path.len == 0 or path[0] != '/') continue;
-        if (path.len >= buffer.len) continue;
-        @memcpy(buffer[0..path.len], path);
-        buffer[path.len] = 0;
-        return buffer[0..path.len :0];
-    }
-    return null;
-}
-
-fn getModuleHandle(_: [*:0]const u16) callconv(.c) ?*anyopaque {
-    return module_handle;
-}
-
-fn getProcAddress(_: ?*anyopaque, name: [*:0]const u8) callconv(.c) ?*anyopaque {
-    return dlsym(module_handle, name);
+fn frameTest(runtime: Runtime) void {
+    const installed = frames.install(runtime, frames.limit);
+    sleepMilliseconds(3000);
+    logFmt("frames installed={d} calls={d}\n", .{ installed, frames.count() });
+    frames.remove();
 }
 
 fn worker() void {
     logText("start\n");
-    _ = waitForLibrary("GameAssembly.so", 30000) orelse {
+    _ = zil2cpp.linux.waitForLibrary("GameAssembly.so", 30000) orelse {
         logText("GameAssembly.so not found\n");
         return;
     };
     logText("GameAssembly.so loaded\n");
     sleepMilliseconds(5000);
 
-    module_handle = dlopen("GameAssembly.so", RTLD_NOW);
-    if (module_handle == null) {
-        var path_buffer: [4096]u8 = undefined;
-        if (libraryPath("GameAssembly.so", &path_buffer)) |path| {
-            module_handle = dlopen(path.ptr, RTLD_NOW);
-        }
-    }
-    if (module_handle == null) {
-        logText("dlopen failed\n");
+    logText("calling loader\n");
+    const loader = zil2cpp.linux.loader("GameAssembly.so") catch |err| {
+        logFmt("loader failed: {s}\n", .{@errorName(err)});
         return;
-    }
+    };
     logText("handle ready\n");
 
-    const loader = Loader{
-        .get_module_handle = getModuleHandle,
-        .get_proc_address = getProcAddress,
-    };
     const runtime = Runtime.init(loader, scratch[0..]) catch |err| {
         logFmt("runtime init failed: {s}\n", .{@errorName(err)});
         return;
@@ -139,6 +129,8 @@ fn worker() void {
         return;
     };
     logFmt("width={d}\n", .{width});
+    hookTests(screen);
+    frameTest(runtime);
     logText("done\n");
 }
 

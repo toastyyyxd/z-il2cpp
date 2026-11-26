@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const linux = std.os.linux;
 const Error = @import("error.zig").Error;
 const Loader = @import("Loader.zig").Loader;

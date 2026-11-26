@@ -69,6 +69,10 @@ pub fn findLibraryBase(maps: []const u8, library_name: []const u8) ?usize {
     return null;
 }
 
+fn relocate(base: usize, value: usize) usize {
+    return if (value >= base) value else base + value;
+}
+
 pub fn findSymbol(base: usize, target_name: []const u8) ?*anyopaque {
     const header: *const ElfHeader = @ptrFromInt(base);
     if (!std.mem.eql(u8, header.ident[0..4], &ELF_MAGIC)) return null;
@@ -97,10 +101,10 @@ pub fn findSymbol(base: usize, target_name: []const u8) ?*anyopaque {
     while (dynamics[dynamic_index].tag != DT_NULL) : (dynamic_index += 1) {
         const value = @as(usize, @intCast(dynamics[dynamic_index].value));
         switch (dynamics[dynamic_index].tag) {
-            DT_STRTAB => string_table = base + value,
-            DT_SYMTAB => symbol_table = base + value,
-            DT_HASH => hash_table = base + value,
-            DT_GNU_HASH => gnu_hash_table = base + value,
+            DT_STRTAB => string_table = relocate(base, value),
+            DT_SYMTAB => symbol_table = relocate(base, value),
+            DT_HASH => hash_table = relocate(base, value),
+            DT_GNU_HASH => gnu_hash_table = relocate(base, value),
             DT_STRSZ => string_size = value,
             DT_SYMENT => symbol_size = value,
             else => {},
@@ -145,7 +149,7 @@ pub fn findSymbol(base: usize, target_name: []const u8) ?*anyopaque {
         while (name_pointer[name_length] != 0) name_length += 1;
         if (!std.mem.eql(u8, name_pointer[0..name_length], target_name)) continue;
         if (symbol.shndx == 0) return null;
-        return @ptrFromInt(base + @as(usize, @intCast(symbol.value)));
+        return @ptrFromInt(relocate(base, @intCast(symbol.value)));
     }
     return null;
 }
