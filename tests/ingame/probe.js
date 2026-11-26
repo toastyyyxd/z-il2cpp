@@ -1,4 +1,4 @@
-const ABI_VERSION = 1;
+const ABI_VERSION = 2;
 const INIT_MAGIC = 0x324c315a;
 const MODULE_PATH = "shared/z-il2cpp-windows-x86_64.pe";
 const SCRATCH_SIZE = 4096;
@@ -25,7 +25,7 @@ function bind() {
         const abi = new NativeFunction(libraryModule.zil2cpp_abi, "uint", [])();
         if (abi !== ABI_VERSION) return fail("abi", abi), false;
         state = Memory.alloc(new NativeFunction(libraryModule.zil2cpp_state_size, "uint", [])());
-        const init = new NativeFunction(libraryModule.zil2cpp_init, "uint", ["pointer", "uint"]);
+        const init = new NativeFunction(libraryModule.zil2cpp_init, "int", ["pointer", "uint"]);
         if (init(state, INIT_MAGIC) !== ABI_VERSION) return fail("init", "rejected"), false;
         const kernel32 = Process.getModuleByName("kernel32.dll");
         loader = Memory.alloc(Process.pointerSize * 2);

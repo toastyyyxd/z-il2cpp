@@ -438,12 +438,13 @@ Exports.
 | --- | --- |
 | `zil2cpp_abi` | ABI version |
 | `zil2cpp_state_size` | `State` size |
-| `zil2cpp_init` | ABI version, 0 on bad magic |
+| `zil2cpp_init` | ABI version, -32 on bad magic or null state |
 | `zil2cpp_runtime_init` | ABI version, negative error |
 | `zil2cpp_tick` | tick count |
 | `zil2cpp_tick_count` | tick count |
 | `zil2cpp_last_frame` | last frame |
 | `zil2cpp_probe_screen_width` | screen width, negative error |
+| `zil2cpp_error_name` | static name for an error code |
 
 Error codes.
 
@@ -463,6 +464,8 @@ Error codes.
 -13 unbox failed
 -14 cache full
 -15 arguments not supported
+-16 virtual method not supported
+-17 invalid parameter count
 -18 argument count mismatch
 -19 null object
 -20 handle creation failed
@@ -477,9 +480,10 @@ Error codes.
 -29 near trampoline page unavailable
 -30 page protection failed
 -31 instruction patch failed
--16 virtual method not supported
--17 invalid parameter count
+-32 invalid init magic
 ```
+
+Codes are append-only and never renumbered. `zil2cpp_error_name` returns static strings for logs.
 
 Artifacts by target:
 
@@ -502,7 +506,7 @@ Host side.
 - handle values are pointer-sized in this build; treat them as opaque
 - weak handles are not available, the export is missing
 
-Version: `abi_version` in `src/c.zig`. Increment on incompatible ABI change.
+Version: `abi_version` in `src/c.zig`. Current version 2. Increment on incompatible ABI change.
 
 ## License
 

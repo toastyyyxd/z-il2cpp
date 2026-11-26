@@ -5,7 +5,7 @@ const Handle = @import("Handle.zig").Handle;
 const Loader = @import("Loader.zig").Loader;
 const Error = @import("error.zig").Error;
 
-pub const abi_version: u32 = 1;
+pub const abi_version: u32 = 2;
 pub const init_magic: u32 = 0x324c315a;
 
 const scratch_magic: u64 = 0x5343524154434831;
@@ -33,8 +33,10 @@ export fn zil2cpp_state_size() callconv(.c) u32 {
     return @sizeOf(State);
 }
 
-export fn zil2cpp_init(state: ?*State, magic: u32) callconv(.c) u32 {
-    const s = state orelse return 0;
+const invalid_init_magic: i32 = -32;
+
+export fn zil2cpp_init(state: ?*State, magic: u32) callconv(.c) i32 {
+    const s = state orelse return invalid_init_magic;
     s.abi_version = abi_version;
     s.init_magic = magic;
     s.flags = 0;
@@ -42,7 +44,46 @@ export fn zil2cpp_init(state: ?*State, magic: u32) callconv(.c) u32 {
     s.tick_count = 0;
     s.last_frame = 0;
     s.reserved = .{ 0, 0, 0, 0 };
-    return if (magic == init_magic) abi_version else 0;
+    return if (magic == init_magic) @intCast(abi_version) else invalid_init_magic;
+}
+
+export fn zil2cpp_error_name(code: i32) callconv(.c) [*:0]const u8 {
+    return switch (code) {
+        0 => "ok",
+        -1 => "not initialized",
+        -2 => "invalid scratch",
+        -3 => "module not found",
+        -4 => "missing export",
+        -5 => "no domain",
+        -6 => "no assemblies",
+        -7 => "class not found",
+        -8 => "method not found",
+        -9 => "field not found",
+        -10 => "null instance",
+        -11 => "invoke failed",
+        -12 => "managed exception",
+        -13 => "unbox failed",
+        -14 => "cache full",
+        -15 => "arguments not supported",
+        -16 => "virtual method not supported",
+        -17 => "invalid parameter count",
+        -18 => "argument count mismatch",
+        -19 => "null object",
+        -20 => "handle creation failed",
+        -21 => "string conversion failed",
+        -22 => "invalid buffer",
+        -23 => "hook failed",
+        -24 => "image not found",
+        -25 => "index out of bounds",
+        -26 => "element size mismatch",
+        -27 => "generic method not supported",
+        -28 => "hook unsupported",
+        -29 => "near trampoline page unavailable",
+        -30 => "page protection failed",
+        -31 => "instruction patch failed",
+        -32 => "invalid init magic",
+        else => "unknown",
+    };
 }
 
 export fn zil2cpp_runtime_init(state: ?*State, loader: ?*const Loader, scratch_pointer: ?[*]u8, scratch_length: usize) callconv(.c) i32 {
@@ -151,6 +192,13 @@ test "init rejects bad magic" {
         .last_frame = 0,
         .reserved = .{ 0, 0, 0, 0 },
     };
-    try @import("std").testing.expectEqual(@as(u32, 0), zil2cpp_init(&state, init_magic ^ 0xffff_ffff));
-    try @import("std").testing.expectEqual(abi_version, zil2cpp_init(&state, init_magic));
+    try @import("std").testing.expectEqual(@as(i32, -32), zil2cpp_init(&state, init_magic ^ 0xffff_ffff));
+    try @import("std").testing.expectEqual(@as(i32, @intCast(abi_version)), zil2cpp_init(&state, init_magic));
+}
+
+test "error names" {
+    try @import("std").testing.expectEqualStrings("ok", std.mem.span(zil2cpp_error_name(0)));
+    try @import("std").testing.expectEqualStrings("not initialized", std.mem.span(zil2cpp_error_name(-1)));
+    try @import("std").testing.expectEqualStrings("invalid init magic", std.mem.span(zil2cpp_error_name(-32)));
+    try @import("std").testing.expectEqualStrings("unknown", std.mem.span(zil2cpp_error_name(1234)));
 }
