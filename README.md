@@ -27,7 +27,7 @@ FRIDA_GADGET=/path/to/frida-gadget-<ver>-windows-x86_64.dll scripts/smoke.sh
 GAME_DIR=/path/to/game FRIDA_GADGET=/path/to/frida-gadget.dll scripts/ingame.sh
 ```
 
-Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Game directory needs the winhttp proxy deployed.
+Requirements: Zig 0.18-dev (flake pin), Wine, Frida gadget 17.26.2 for the dev loop. Hooks target Windows x64 only. Game directory needs the winhttp proxy deployed.
 
 ## Dev loop
 
@@ -40,6 +40,20 @@ scripts/session.sh stop
 ```
 
 Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a running game.
+
+## Hooks
+
+Native inline hooks use vendored MinHook. Windows x64 only.
+
+- `tests/hooks/host.zig`: game-free hook test
+- `tests/hooks/spike.zig`: DLL that hooks `il2cpp_domain_get` in game
+- `tests/hooks/spike.js`: loads the spike DLL and verifies call counts
+
+```sh
+scripts/hooks-smoke.sh
+```
+
+MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
 ## Layout
 
@@ -66,6 +80,11 @@ scripts/smoke.sh           smoke orchestration
 scripts/session.sh         persistent listen-mode game session
 scripts/probe.py           host probe runner
 scripts/ingame.sh          one-shot probe orchestration
+scripts/hooks-smoke.sh     game-free hook test
+tests/hooks/host.zig       game-free MinHook test
+tests/hooks/spike.zig      in-game hook spike DLL
+tests/hooks/spike.js       in-game hook spike probe
+third_party/minhook        vendored MinHook (BSD 2-clause)
 ```
 
 ## Zig API

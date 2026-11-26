@@ -97,6 +97,42 @@ pub fn build(b: *std.Build) void {
     smoke_host_step.dependOn(&smoke_host_install.step);
     b.getInstallStep().dependOn(&smoke_host_install.step);
 
+    const hooks_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu });
+    const hooks_host = b.addExecutable(.{
+        .name = "hooks-host",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/hooks/host.zig"),
+            .target = hooks_target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+        }),
+    });
+    addMinHook(b, hooks_host.root_module);
+    const hooks_host_install = b.addInstallArtifact(hooks_host, .{
+        .dest_dir = .{ .override = .{ .custom = "hooks" } },
+    });
+    const hooks_host_step = b.step("hooks-host", "Build the hooks host");
+    hooks_host_step.dependOn(&hooks_host_install.step);
+    b.getInstallStep().dependOn(&hooks_host_install.step);
+
+    const hooks_spike = b.addLibrary(.{
+        .name = "zil2cpp-hook-spike",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/hooks/spike.zig"),
+            .target = hooks_target,
+            .optimize = .ReleaseSmall,
+            .link_libc = true,
+        }),
+    });
+    addMinHook(b, hooks_spike.root_module);
+    const hooks_spike_install = b.addInstallArtifact(hooks_spike, .{
+        .dest_dir = .{ .override = .{ .custom = "hooks" } },
+    });
+    const hooks_spike_step = b.step("hooks-spike", "Build the hook spike dll");
+    hooks_spike_step.dependOn(&hooks_spike_install.step);
+    b.getInstallStep().dependOn(&hooks_spike_install.step);
+
     const test_step = b.step("test", "Run unit tests");
 
     const root_tests = b.addTest(.{ .root_module = mod });
@@ -129,6 +165,21 @@ pub fn build(b: *std.Build) void {
     });
     const fmt_step = b.step("fmt", "Formatting check");
     fmt_step.dependOn(&fmt.step);
+}
+
+const minhook_sources = [_][]const u8{
+    "third_party/minhook/src/buffer.c",
+    "third_party/minhook/src/hook.c",
+    "third_party/minhook/src/trampoline.c",
+    "third_party/minhook/src/hde/hde32.c",
+    "third_party/minhook/src/hde/hde64.c",
+};
+
+fn addMinHook(b: *std.Build, module: *std.Build.Module) void {
+    module.addCSourceFiles(.{ .files = &minhook_sources, .flags = &.{} });
+    module.addIncludePath(b.path("third_party/minhook/include"));
+    module.addIncludePath(b.path("third_party/minhook/src"));
+    module.addIncludePath(b.path("third_party/minhook/src/hde"));
 }
 
 const SharedTarget = struct {
