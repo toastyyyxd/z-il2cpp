@@ -19,11 +19,13 @@ const game_assembly = [16:0]u16{
 };
 const stage_name = std.unicode.utf8ToUtf16LeStringLiteral("zil2cpp-stage.txt");
 const result_name = std.unicode.utf8ToUtf16LeStringLiteral("zil2cpp-native-result.json");
+const exception_name = std.unicode.utf8ToUtf16LeStringLiteral("zil2cpp-exception.txt");
 
 var scratch: [8192]u8 align(16) = @splat(0);
 var started = false;
 var init_returned = false;
 var startup_mode: []const u8 = "unknown";
+var exception_status: i32 = 0;
 var init_hook: ?Hooks.Hook(fn ([*:0]const u8) callconv(.c) c_int) = null;
 
 fn writeFile(name: [:0]const u16, data: []const u8) void {
@@ -82,15 +84,37 @@ fn widthOf(runtime_value: Runtime) i32 {
 
 fn writeResult(ok: bool, stage: []const u8, width: i32, hooks: u32) void {
     var buffer: [512]u8 = undefined;
-    const json = std.fmt.bufPrint(&buffer, "{{\"ok\": {s}, \"stage\": \"{s}\", \"mode\": \"{s}\", \"width\": {d}, \"hooks\": {d}, \"frames\": {d}}}\n", .{
+    const json = std.fmt.bufPrint(&buffer, "{{\"ok\": {s}, \"stage\": \"{s}\", \"mode\": \"{s}\", \"width\": {d}, \"hooks\": {d}, \"frames\": {d}, \"exception\": {d}}}\n", .{
         if (ok) "true" else "false",
         stage,
         startup_mode,
         width,
         hooks,
         frames.count(),
+        exception_status,
     }) catch return;
     writeFile(result_name, json);
+}
+
+fn exceptionTest(runtime_value: Runtime) i32 {
+    const string_class = runtime_value.findClass("System", "String") catch return -110;
+    const chars = string_class.findMethod("get_Chars", 1) catch return -111;
+    const text = zil2cpp.String.fromUtf8(runtime_value, "abc") catch return -112;
+    const outcome = chars.invokeOnCatching(text.pointer, .{@as(i32, 99)}, u16) catch return -113;
+    const exception = switch (outcome) {
+        .value => return -114,
+        .exception => |value| value,
+    };
+    const class_name = exception.className() orelse return -115;
+    var message_buffer: [256]u8 = undefined;
+    const message = exception.message(message_buffer[0..]) catch return -116;
+    var trace_buffer: [512]u8 = undefined;
+    const trace = exception.stackTrace(trace_buffer[0..]) catch return -117;
+    if (message.len == 0 or trace.len == 0) return -118;
+    var output: [1024]u8 = undefined;
+    const text_output = std.fmt.bufPrint(&output, "{s}\n{s}\n{s}\n", .{ std.mem.span(class_name), message, trace }) catch return -119;
+    writeFile(exception_name, text_output);
+    return 1;
 }
 
 fn bootstrapThread(_: ?*anyopaque) callconv(.winapi) u32 {
@@ -109,6 +133,13 @@ fn bootstrapThread(_: ?*anyopaque) callconv(.winapi) u32 {
         return 0;
     }
     writeStage("width-ok");
+    exception_status = exceptionTest(runtime_value);
+    if (exception_status != 1) {
+        writeStage("exception-fail");
+        writeResult(false, "exception", width, 0);
+        return 0;
+    }
+    writeStage("exception-ok");
     const hooks = frames.install(runtime_value, frames.limit);
     writeStage("frame-hooks");
     Sleep(3000);

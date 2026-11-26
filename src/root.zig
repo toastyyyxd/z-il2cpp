@@ -11,6 +11,7 @@ pub const String = @import("String.zig").String;
 pub const Error = @import("error.zig").Error;
 pub const MinHook = @import("MinHook.zig");
 pub const Hooks = @import("Hooks.zig");
+pub const Exception = @import("Exception.zig").Exception;
 
 test {
     std.testing.refAllDecls(@This());

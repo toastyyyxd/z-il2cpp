@@ -228,6 +228,24 @@ while (methods.next()) |method| {
 
 Struct arguments and returns use Zig `extern struct` types. Layout must match the managed layout. Supported argument types: bool, integers, floats, enums, pointers, extern structs. Return types add void and `?*anyopaque` references.
 
+Managed exceptions have a detailed path.
+
+```zig
+const outcome = try method.invokeCatching(.{argument}, i32);
+switch (outcome) {
+    .value => |value| {},
+    .exception => |exception| {
+        const class_name = exception.className();
+        var message_buffer: [256]u8 = undefined;
+        const message = try exception.message(message_buffer[0..]);
+        var trace_buffer: [512]u8 = undefined;
+        const trace = try exception.stackTrace(trace_buffer[0..]);
+    },
+}
+```
+
+Message and stack trace come from the managed `Exception.Message` and `Exception.StackTrace` getters. `Method.invoke` still collapses to `error.ManagedException`.
+
 `Method.isVirtual`, `Method.resolveVirtual`, and `Method.virtualEntryPoint` cover overrides. `Hooks.hookVirtualMethod` resolves the override for an instance and hooks it.
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.

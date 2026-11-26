@@ -1,6 +1,7 @@
 const std = @import("std");
 const Runtime = @import("Runtime.zig").Runtime;
 const convert = @import("convert.zig");
+const Exception = @import("Exception.zig").Exception;
 const Error = @import("error.zig").Error;
 
 pub const Method = struct {
@@ -64,7 +65,30 @@ pub const Method = struct {
         return self.call(instance, arguments, ReturnType);
     }
 
+    pub fn Outcome(comptime ReturnType: type) type {
+        return union(enum) {
+            value: ReturnType,
+            exception: Exception,
+        };
+    }
+
+    pub fn invokeCatching(self: Method, arguments: anytype, comptime ReturnType: type) Error!Outcome(ReturnType) {
+        return self.callCatching(null, arguments, ReturnType);
+    }
+
+    pub fn invokeOnCatching(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!Outcome(ReturnType) {
+        return self.callCatching(instance, arguments, ReturnType);
+    }
+
     fn call(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
+        const outcome = try self.callCatching(instance, arguments, ReturnType);
+        return switch (outcome) {
+            .value => |value| value,
+            .exception => error.ManagedException,
+        };
+    }
+
+    fn callCatching(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!Outcome(ReturnType) {
         const ArgumentsType = @TypeOf(arguments);
         const argument_types: []const type = switch (@typeInfo(ArgumentsType)) {
             .@"struct" => |info| info.field_types,
@@ -90,11 +114,13 @@ pub const Method = struct {
         var exception: ?*anyopaque = null;
         const params: ?[*]?*anyopaque = if (argument_count == 0) null else &pointers;
         const result = self.runtime.exports.runtime_invoke(method_pointer, instance, params, &exception);
-        if (exception != null) return error.ManagedException;
-        if (ReturnType == void) return {};
-        if (ReturnType == ?*anyopaque) return result;
+        if (exception) |pointer| {
+            return .{ .exception = .{ .runtime = self.runtime, .pointer = pointer } };
+        }
+        if (ReturnType == void) return .{ .value = {} };
+        if (ReturnType == ?*anyopaque) return .{ .value = result };
         const boxed = result orelse return error.InvokeFailed;
-        return convert.fromBoxed(ReturnType, boxed, self.runtime.exports.object_unbox);
+        return .{ .value = try convert.fromBoxed(ReturnType, boxed, self.runtime.exports.object_unbox) };
     }
 
     const SlotLayout = struct {
