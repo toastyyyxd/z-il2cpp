@@ -257,19 +257,26 @@ Test target: a Unity IL2CPP build.
 LD_PRELOAD=$PWD/zig-out/linux/libzil2cpp_probe.so ./game.x86_64 -batchmode -nographics
 ```
 
-Result:
+Headless `-batchmode -nographics` result:
 
 ```
-GameAssembly.so loaded
-handle ready
 width=640
 code hook calls=1
 method hook calls=1 before=640 after=640
-frames installed=8 calls=0
+frames installed=32 failures=5 calls=0
+```
+
+Headless batch mode does not run the player loop, so frame hooks install but Update never fires. Windowed on X11/OpenGL:
+
+```
+width=2560
+code hook calls=1
+method hook calls=1 before=2560 after=2560
+frames installed=32 failures=5 calls=79521
 done
 ```
 
-The frame hooks install, but Update does not run in headless batch mode, so calls stay at zero. Code hooks and managed method pointer hooks are both validated.
+All three hook paths are validated on Linux x86_64: native exports, managed method pointer hooks, and managed Update frame hooks.
 
 `zil2cpp.linux` provides `waitForLibrary`, `loader`, `symbol`, `resolveSymbol`, and `findLibrary`. The ELF resolver handles both relative and pre-relocated dynamic pointers, which glibc uses.
 

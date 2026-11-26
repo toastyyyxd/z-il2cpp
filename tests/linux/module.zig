@@ -90,9 +90,9 @@ fn hookTests(screen: zil2cpp.Class) void {
 }
 
 fn frameTest(runtime: Runtime) void {
-    const installed = frames.install(runtime, frames.limit);
-    sleepMilliseconds(3000);
-    logFmt("frames installed={d} calls={d}\n", .{ installed, frames.count() });
+    const installed = frames.installCode(runtime, frames.max_slots);
+    sleepMilliseconds(12000);
+    logFmt("frames installed={d} failures={d} calls={d}\n", .{ installed, frames.failureCount(), frames.count() });
     frames.remove();
 }
 
@@ -103,7 +103,7 @@ fn worker() void {
         return;
     };
     logText("GameAssembly.so loaded\n");
-    sleepMilliseconds(5000);
+    sleepMilliseconds(15000);
 
     logText("calling loader\n");
     const loader = zil2cpp.linux.loader("GameAssembly.so") catch |err| {

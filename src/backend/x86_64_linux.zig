@@ -196,9 +196,9 @@ fn fitsRelative(from: usize, to: usize) bool {
 
 fn allocateNear(target: usize) ?usize {
     var attempt: usize = 0;
-    while (attempt < 512) : (attempt += 1) {
-        const distance = (@as(usize, 1) << 20) * (attempt / 2 + 1);
-        const candidate = if (attempt % 2 == 0) target -% distance else target + distance;
+    while (attempt < 192) : (attempt += 1) {
+        const distance = (@as(usize, 1) << 20) + attempt * (@as(usize, 1) << 24);
+        const candidate = if (attempt % 2 == 0) target -% distance else target +% distance;
         const hint = candidate & ~(page_size - 1);
         const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
         const result = linux.mmap(@ptrFromInt(hint), page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
@@ -208,6 +208,12 @@ fn allocateNear(target: usize) ?usize {
         if (offset < near_limit) return address;
         _ = linux.munmap(@ptrFromInt(address), page_size);
     }
+    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+    const address = linux.mmap(null, page_size, .{ .READ = true, .WRITE = true }, flags, -1, 0);
+    if (@as(isize, @bitCast(address)) < 0) return null;
+    const offset = if (address > target) address - target else target - address;
+    if (offset < near_limit) return address;
+    _ = linux.munmap(@ptrFromInt(address), page_size);
     return null;
 }
 

@@ -4,6 +4,7 @@ const Hooks = zil2cpp.Hooks;
 const Runtime = zil2cpp.Runtime;
 const Method = zil2cpp.Method;
 
+pub const max_slots = 32;
 pub const limit = 8;
 
 const Signature = fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
@@ -12,7 +13,7 @@ var calls: u32 = 0;
 var installed: u32 = 0;
 var skip_original = false;
 var failures: u32 = 0;
-var slot_counts: [limit]u32 = @splat(0);
+var slot_counts: [max_slots]u32 = @splat(0);
 
 fn Slot(comptime index: usize) type {
     return struct {
@@ -33,16 +34,16 @@ fn Slot(comptime index: usize) type {
 }
 
 const detours = blk: {
-    var result: [limit]*const Signature = undefined;
-    for (0..limit) |index| result[index] = &Slot(index).detour;
+    var result: [max_slots]*const Signature = undefined;
+    for (0..max_slots) |index| result[index] = &Slot(index).detour;
     break :blk result;
 };
 
-fn installSlot(slot: usize, method: Method, address: ?*anyopaque) bool {
+fn installSlot(slot: usize, method: Method, address: ?*anyopaque, force_code: bool) bool {
     if (address == null) return false;
-    inline for (0..limit) |index| {
+    inline for (0..max_slots) |index| {
         if (slot == index) {
-            if (Hooks.supportsMethodPointerHooks()) {
+            if (!force_code and Hooks.supportsMethodPointerHooks()) {
                 Slot(index).pointer = Hooks.MethodPointerHook(Signature).install(method, &Slot(index).detour) catch {
                     failures += 1;
                     return false;
@@ -60,12 +61,20 @@ fn installSlot(slot: usize, method: Method, address: ?*anyopaque) bool {
 }
 
 pub fn install(runtime: Runtime, max: u32) u32 {
-    return installRange(runtime, 0, max);
+    return installRangeMode(runtime, 0, max, false);
+}
+
+pub fn installCode(runtime: Runtime, max: u32) u32 {
+    return installRangeMode(runtime, 0, max, true);
 }
 
 pub fn installRange(runtime: Runtime, start_index: u32, max: u32) u32 {
+    return installRangeMode(runtime, start_index, max, false);
+}
+
+fn installRangeMode(runtime: Runtime, start_index: u32, max: u32, force_code: bool) u32 {
     const image = runtime.findImage("Assembly-CSharp.dll") catch return 0;
-    const effective = @min(limit, max);
+    const effective = @min(max_slots, max);
     const class_count = image.classCount();
     var candidate: u32 = 0;
     var index: usize = 0;
@@ -80,7 +89,7 @@ pub fn installRange(runtime: Runtime, start_index: u32, max: u32) u32 {
             candidate += 1;
             continue;
         }
-        if (installSlot(installed, method, address)) installed += 1;
+        if (installSlot(installed, method, address, force_code)) installed += 1;
         candidate += 1;
     }
     return installed;
@@ -103,7 +112,7 @@ pub fn skipOriginal(enable: bool) void {
 }
 
 pub fn slotCount(index: usize) u32 {
-    return if (index < limit) slot_counts[index] else 0;
+    return if (index < max_slots) slot_counts[index] else 0;
 }
 
 pub fn reset() void {
@@ -113,7 +122,7 @@ pub fn reset() void {
 }
 
 pub fn remove() void {
-    inline for (0..limit) |index| {
+    inline for (0..max_slots) |index| {
         if (Slot(index).pointer) |*hook| {
             hook.detach();
             Slot(index).pointer = null;
