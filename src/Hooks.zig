@@ -16,3 +16,8 @@ pub fn hookMethod(comptime Signature: type, method: Method, detour: *const Signa
     const address = (try method.entryPoint()) orelse return error.MethodNotFound;
     return Hook(Signature).install(address, detour);
 }
+
+pub fn hookVirtualMethod(comptime Signature: type, method: Method, instance: ?*anyopaque, detour: *const Signature) Error!Hook(Signature) {
+    const resolved = try method.resolveVirtual(instance);
+    return hookMethod(Signature, resolved, detour);
+}

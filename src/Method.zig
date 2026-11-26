@@ -16,14 +16,34 @@ pub const Method = struct {
         return self.runtime.exports.method_is_generic(self.pointer);
     }
 
+    pub fn isVirtual(self: Method) bool {
+        var iflags: u32 = 0;
+        return (self.runtime.exports.method_get_flags(self.pointer, &iflags) & 0x0040) != 0;
+    }
+
+    pub fn resolveVirtual(self: Method, instance: ?*anyopaque) Error!Method {
+        const object = instance orelse return error.NullObject;
+        const pointer = self.runtime.exports.object_get_virtual_method(object, self.pointer) orelse return error.MethodNotFound;
+        return .{ .runtime = self.runtime, .pointer = pointer };
+    }
+
     pub fn isInflated(self: Method) bool {
         return self.runtime.exports.method_is_inflated(self.pointer);
     }
 
     pub fn entryPoint(self: Method) Error!?*anyopaque {
         const info = self.pointer orelse return error.MethodNotFound;
+        return codePointerAt(info, 0);
+    }
+
+    pub fn virtualEntryPoint(self: Method) Error!?*anyopaque {
+        const info = self.pointer orelse return error.MethodNotFound;
+        return codePointerAt(info, @sizeOf(usize));
+    }
+
+    fn codePointerAt(info: *anyopaque, offset: usize) ?*anyopaque {
         const bytes: [*]const u8 = @ptrCast(info);
-        const candidate = @as(*align(1) const usize, @ptrCast(bytes)).*;
+        const candidate = @as(*align(1) const usize, @ptrCast(bytes + offset)).*;
         if (candidate == 0) return null;
         return @ptrFromInt(candidate);
     }

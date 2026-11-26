@@ -191,7 +191,14 @@ const entry = try update.entryPoint();
 
 const hook = try Hooks.hookMethod(fn (?*anyopaque) callconv(.c) void, update, &detour);
 defer hook.detach();
+
+const base = try object_class.findMethod("ToString", 0);
+const resolved = try base.resolveVirtual(instance);
+const virtual_hook = try Hooks.hookVirtualMethod(fn (?*anyopaque) callconv(.c) ?*anyopaque, base, instance, &detour);
+defer virtual_hook.detach();
 ```
+
+`Method.isVirtual`, `Method.resolveVirtual`, and `Method.virtualEntryPoint` cover overrides. `Hooks.hookVirtualMethod` resolves the override for an instance and hooks it.
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.
 

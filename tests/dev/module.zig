@@ -24,6 +24,9 @@ var arg_after: f32 = 0;
 var arg_final: f32 = 0;
 var arg_hook: ?Hooks.Hook(fn (f32) callconv(.c) void) = null;
 
+var virtual_calls: u32 = 0;
+var virtual_hook: ?Hooks.Hook(fn (?*anyopaque) callconv(.c) ?*anyopaque) = null;
+
 fn loader() Loader {
     return .{ .get_module_handle = GetModuleHandleW, .get_proc_address = GetProcAddress };
 }
@@ -59,6 +62,12 @@ fn errorCode(err: Error) i32 {
         error.HookFailed => -23,
         error.ImageNotFound => -24,
     };
+}
+
+fn toStringDetour(instance: ?*anyopaque) callconv(.c) ?*anyopaque {
+    virtual_calls +%= 1;
+    const hook = virtual_hook orelse return null;
+    return hook.original(instance);
 }
 
 fn widthDetour() callconv(.c) i32 {
@@ -104,6 +113,36 @@ fn selftestArguments(runtime_value: Runtime) i32 {
     arg_final = getter.invoke(.{}, f32) catch return -18;
     if (calls != 1 or seen != 0.5 or arg_after != 0.5) return -19;
     return 1;
+}
+
+fn selftestVirtual(runtime_value: Runtime) i32 {
+    const text = zil2cpp.String.fromUtf8(runtime_value, "virtual-hook") catch return -30;
+    const object_class = runtime_value.findClass("System", "Object") catch return -31;
+    const base_method = object_class.findMethod("ToString", 0) catch return -32;
+    if (!base_method.isVirtual()) return -33;
+    const resolved = base_method.resolveVirtual(text.pointer) catch return -34;
+    if (resolved.pointer == base_method.pointer) return -35;
+    virtual_hook = Hooks.hookMethod(fn (?*anyopaque) callconv(.c) ?*anyopaque, resolved, &toStringDetour) catch return -36;
+    const returned = resolved.invokeOn(text.pointer, .{}, ?*anyopaque) catch return -37;
+    const calls = virtual_calls;
+    virtual_hook.?.detach();
+    virtual_hook = null;
+    if (calls != 1) return -38;
+    const returned_text = zil2cpp.String{ .runtime = runtime_value, .pointer = returned };
+    var buffer: [64]u8 = undefined;
+    const written = returned_text.toUtf8(buffer[0..]) catch return -39;
+    if (!std.mem.eql(u8, written, "virtual-hook")) return -40;
+    return 1;
+}
+
+export fn dev_selftest_virtual() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestVirtual(runtime_value);
+}
+
+export fn dev_virtual_calls() callconv(.c) u32 {
+    return virtual_calls;
 }
 
 export fn dev_selftest_width() callconv(.c) i32 {
