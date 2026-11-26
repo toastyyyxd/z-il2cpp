@@ -52,7 +52,7 @@ fn loadZil2cpp() void {
 }
 
 fn bootstrapThread(_: ?*anyopaque) callconv(.winapi) u32 {
-    Sleep(200);
+    Sleep(1);
     writeStage("thread");
     loadZil2cpp();
     return 0;

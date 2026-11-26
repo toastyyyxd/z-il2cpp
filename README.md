@@ -114,7 +114,9 @@ GAME_DIR=/path/to/game scripts/native-loader.sh
 
 Requirements: `winhttp_orig.dll` in the game directory. Write access to the game directory. No gadget, no agent script, no JS.
 
-In-game result: about 10 seconds end to end. Width 1914. 8 Update hooks. 1516 native frame calls in three seconds. No Frida module is loaded.
+In-game result: about 5 seconds end to end. Width 1914. 8 Update hooks. Hundreds of thousands of native frame calls in three seconds. No Frida module is loaded.
+
+Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it runs and bootstraps from the exact `onLeave`. The timeout fallback remains for environments where the DLL loads late.
 
 ## Layout
 

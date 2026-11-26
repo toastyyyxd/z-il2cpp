@@ -218,10 +218,10 @@ fn startupThread(_: ?*anyopaque) callconv(.winapi) u32 {
     writeStage("start");
     var module: ?*anyopaque = null;
     var tries: u32 = 0;
-    while (tries < 600) : (tries += 1) {
+    while (tries < 30000) : (tries += 1) {
         module = GetModuleHandleW(&game_assembly);
         if (module != null) break;
-        Sleep(50);
+        Sleep(1);
     }
     if (module == null) {
         writeStage("no-gameassembly");
