@@ -1,6 +1,7 @@
 const std = @import("std");
 const zil2cpp = @import("z_il2cpp");
-const MinHook = zil2cpp.MinHook;
+const frames = @import("frames");
+const Hooks = zil2cpp.Hooks;
 const Runtime = zil2cpp.Runtime;
 const Loader = zil2cpp.Loader;
 const Error = zil2cpp.Error;
@@ -23,29 +24,7 @@ var scratch: [8192]u8 align(16) = @splat(0);
 var started = false;
 var init_returned = false;
 var startup_mode: []const u8 = "unknown";
-var init_hook: ?MinHook.TypedHook(fn ([*:0]const u8) callconv(.c) c_int) = null;
-
-var frame_calls: u32 = 0;
-var frame_slots: u32 = 0;
-const frame_hook_limit = 8;
-
-fn FrameSlot(comptime _: usize) type {
-    return struct {
-        var hook: ?MinHook.TypedHook(fn (?*anyopaque) callconv(.c) void) = null;
-        fn detour(instance: ?*anyopaque) callconv(.c) void {
-            frame_calls +%= 1;
-            if (hook) |*active| active.original(instance);
-        }
-    };
-}
-
-const frame_detours = blk: {
-    var result: [frame_hook_limit]*const fn (?*anyopaque) callconv(.c) void = undefined;
-    for (0..frame_hook_limit) |index| {
-        result[index] = &FrameSlot(index).detour;
-    }
-    break :blk result;
-};
+var init_hook: ?Hooks.Hook(fn ([*:0]const u8) callconv(.c) c_int) = null;
 
 fn writeFile(name: [:0]const u16, data: []const u8) void {
     const handle = CreateFileW(name.ptr, 0x40000000, 0, null, 2, 0x80, null) orelse return;
@@ -91,6 +70,7 @@ fn errorCode(err: Error) i32 {
         error.StringConversionFailed => -21,
         error.InvalidBuffer => -22,
         error.HookFailed => -23,
+        error.ImageNotFound => -24,
     };
 }
 
@@ -98,71 +78,6 @@ fn widthOf(runtime_value: Runtime) i32 {
     const screen = runtime_value.findClass("UnityEngine", "Screen") catch return -100;
     const method = screen.findMethod("get_width", 0) catch return -101;
     return method.invoke(.{}, i32) catch return -102;
-}
-
-fn methodCodePointer(method_info: ?*anyopaque) ?*anyopaque {
-    const info = method_info orelse return null;
-    const bytes: [*]const u8 = @ptrCast(info);
-    const candidate = @as(*align(1) const usize, @ptrCast(bytes)).*;
-    if (candidate == 0) return null;
-    return @ptrFromInt(candidate);
-}
-
-fn isMonoBehaviour(runtime_value: Runtime, klass: ?*anyopaque) bool {
-    var current = klass;
-    var depth: u32 = 0;
-    while (current != null and depth < 32) : (depth += 1) {
-        const name = runtime_value.exports.class_get_name(current) orelse break;
-        if (std.mem.eql(u8, std.mem.span(name), "MonoBehaviour")) return true;
-        current = runtime_value.exports.class_get_parent(current);
-    }
-    return false;
-}
-
-fn isStaticMethod(runtime_value: Runtime, method: ?*anyopaque) bool {
-    var iflags: u32 = 0;
-    return (runtime_value.exports.method_get_flags(method, &iflags) & 0x0010) != 0;
-}
-
-fn installFrameSlot(slot: usize, address: ?*anyopaque) bool {
-    if (address == null) return false;
-    const signature = fn (?*anyopaque) callconv(.c) void;
-    var installed_here = false;
-    inline for (0..frame_hook_limit) |index| {
-        if (slot == index) {
-            FrameSlot(index).hook = MinHook.TypedHook(signature).install(address.?, &FrameSlot(index).detour) catch return false;
-            installed_here = true;
-        }
-    }
-    return installed_here;
-}
-
-fn installFrameHooks(runtime_value: Runtime) u32 {
-    const domain = runtime_value.domain orelse return 0;
-    var assembly_count: usize = 0;
-    const assemblies = runtime_value.exports.domain_get_assemblies(domain, &assembly_count);
-    var installed: u32 = 0;
-    var assembly_index: usize = 0;
-    while (assembly_index < assembly_count and installed < frame_hook_limit) : (assembly_index += 1) {
-        const image = runtime_value.exports.assembly_get_image(assemblies[assembly_index]) orelse continue;
-        const image_name = runtime_value.exports.image_get_name(image) orelse continue;
-        if (!std.mem.eql(u8, std.mem.span(image_name), "Assembly-CSharp.dll")) continue;
-        const class_count = runtime_value.exports.image_get_class_count(image);
-        var class_index: usize = 0;
-        while (class_index < class_count and installed < frame_hook_limit) : (class_index += 1) {
-            const klass = runtime_value.exports.image_get_class(image, class_index) orelse continue;
-            if (!isMonoBehaviour(runtime_value, klass)) continue;
-            if (runtime_value.exports.class_is_generic(klass)) continue;
-            if (runtime_value.exports.class_is_inflated(klass)) continue;
-            const method = runtime_value.exports.class_get_method_from_name(klass, "Update", 0) orelse continue;
-            if (isStaticMethod(runtime_value, method)) continue;
-            if (runtime_value.exports.method_is_generic(method)) continue;
-            if (runtime_value.exports.method_is_inflated(method)) continue;
-            const address = methodCodePointer(method) orelse continue;
-            if (installFrameSlot(installed, address)) installed += 1;
-        }
-    }
-    return installed;
 }
 
 fn writeResult(ok: bool, stage: []const u8, width: i32, hooks: u32) void {
@@ -173,7 +88,7 @@ fn writeResult(ok: bool, stage: []const u8, width: i32, hooks: u32) void {
         startup_mode,
         width,
         hooks,
-        frame_calls,
+        frames.count(),
     }) catch return;
     writeFile(result_name, json);
 }
@@ -194,8 +109,7 @@ fn bootstrapThread(_: ?*anyopaque) callconv(.winapi) u32 {
         return 0;
     }
     writeStage("width-ok");
-    const hooks = installFrameHooks(runtime_value);
-    frame_slots = hooks;
+    const hooks = frames.install(runtime_value, frames.limit);
     writeStage("frame-hooks");
     Sleep(3000);
     writeResult(hooks > 0, "done", width, hooks);
@@ -229,13 +143,14 @@ fn startupThread(_: ?*anyopaque) callconv(.winapi) u32 {
         return 0;
     }
     writeStage("gameassembly");
-    MinHook.init() catch {
+    Hooks.init() catch {
         writeStage("minhook-fail");
         writeResult(false, "minhook", 0, 0);
         return 0;
     };
     if (GetProcAddress(module, "il2cpp_init")) |raw| {
-        init_hook = MinHook.TypedHook(fn ([*:0]const u8) callconv(.c) c_int).install(raw, &il2cppInitDetour) catch null;
+        const init_signature = fn ([*:0]const u8) callconv(.c) c_int;
+        init_hook = Hooks.Hook(init_signature).install(raw, &il2cppInitDetour) catch null;
     }
     writeStage("hooked");
     var waited: u32 = 0;

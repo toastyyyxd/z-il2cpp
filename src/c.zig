@@ -125,6 +125,7 @@ fn errorCode(err: Error) i32 {
         error.StringConversionFailed => -21,
         error.InvalidBuffer => -22,
         error.HookFailed => -23,
+        error.ImageNotFound => -24,
     };
 }
 

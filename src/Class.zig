@@ -8,19 +8,47 @@ pub const Class = struct {
     runtime: Runtime,
     pointer: ?*anyopaque,
 
-    pub fn findMethod(self: Class, name: [:0]const u8, parameter_count: usize) Error!Method {
-        if (self.runtime.cache.findMethod(self.pointer, name, parameter_count)) |pointer| {
+    pub fn name(self: Class) ?[*:0]const u8 {
+        return self.runtime.exports.class_get_name(self.pointer);
+    }
+
+    pub fn parent(self: Class) ?Class {
+        const pointer = self.runtime.exports.class_get_parent(self.pointer) orelse return null;
+        return .{ .runtime = self.runtime, .pointer = pointer };
+    }
+
+    pub fn isGeneric(self: Class) bool {
+        return self.runtime.exports.class_is_generic(self.pointer);
+    }
+
+    pub fn isInflated(self: Class) bool {
+        return self.runtime.exports.class_is_inflated(self.pointer);
+    }
+
+    pub fn derivesFromName(self: Class, wanted: [:0]const u8) bool {
+        var current: ?Class = self;
+        var depth: u32 = 0;
+        while (current != null and depth < 64) : (depth += 1) {
+            const current_name = current.?.name() orelse return false;
+            if (std.mem.eql(u8, std.mem.span(current_name), wanted)) return true;
+            current = current.?.parent();
+        }
+        return false;
+    }
+
+    pub fn findMethod(self: Class, method_name: [:0]const u8, parameter_count: usize) Error!Method {
+        if (self.runtime.cache.findMethod(self.pointer, method_name, parameter_count)) |pointer| {
             return .{ .runtime = self.runtime, .pointer = pointer };
         }
         const class_pointer = self.pointer orelse return error.ClassNotFound;
         if (parameter_count > std.math.maxInt(i32)) return error.InvalidParameterCount;
-        const pointer = self.runtime.exports.class_get_method_from_name(class_pointer, name.ptr, @intCast(parameter_count)) orelse return error.MethodNotFound;
-        try self.runtime.cache.putMethod(self.pointer, name, parameter_count, pointer);
+        const pointer = self.runtime.exports.class_get_method_from_name(class_pointer, method_name.ptr, @intCast(parameter_count)) orelse return error.MethodNotFound;
+        try self.runtime.cache.putMethod(self.pointer, method_name, parameter_count, pointer);
         return .{ .runtime = self.runtime, .pointer = pointer };
     }
 
-    pub fn findField(self: Class, name: [:0]const u8) Error!Field {
-        if (self.runtime.cache.findField(self.pointer, name)) |pointer| {
+    pub fn findField(self: Class, field_name: [:0]const u8) Error!Field {
+        if (self.runtime.cache.findField(self.pointer, field_name)) |pointer| {
             return .{
                 .runtime = self.runtime,
                 .pointer = pointer,
@@ -28,8 +56,8 @@ pub const Class = struct {
             };
         }
         const class_pointer = self.pointer orelse return error.ClassNotFound;
-        const pointer = self.runtime.exports.class_get_field_from_name(class_pointer, name.ptr) orelse return error.FieldNotFound;
-        try self.runtime.cache.putField(self.pointer, name, pointer);
+        const pointer = self.runtime.exports.class_get_field_from_name(class_pointer, field_name.ptr) orelse return error.FieldNotFound;
+        try self.runtime.cache.putField(self.pointer, field_name, pointer);
         return .{
             .runtime = self.runtime,
             .pointer = pointer,

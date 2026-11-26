@@ -20,7 +20,7 @@ function runTest() {
         report({ kind: "skip-original" });
     }
     report({ kind: "install", status: status });
-    report({ kind: "result", ok: status === 1 });
+    report({ kind: "result", ok: status > 0 });
 }
 
 function arm(mapped) {

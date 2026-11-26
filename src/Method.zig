@@ -7,6 +7,27 @@ pub const Method = struct {
     runtime: Runtime,
     pointer: ?*anyopaque,
 
+    pub fn isStatic(self: Method) bool {
+        var iflags: u32 = 0;
+        return (self.runtime.exports.method_get_flags(self.pointer, &iflags) & 0x0010) != 0;
+    }
+
+    pub fn isGeneric(self: Method) bool {
+        return self.runtime.exports.method_is_generic(self.pointer);
+    }
+
+    pub fn isInflated(self: Method) bool {
+        return self.runtime.exports.method_is_inflated(self.pointer);
+    }
+
+    pub fn entryPoint(self: Method) Error!?*anyopaque {
+        const info = self.pointer orelse return error.MethodNotFound;
+        const bytes: [*]const u8 = @ptrCast(info);
+        const candidate = @as(*align(1) const usize, @ptrCast(bytes)).*;
+        if (candidate == 0) return null;
+        return @ptrFromInt(candidate);
+    }
+
     pub fn invoke(self: Method, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
         return self.call(null, arguments, ReturnType);
     }

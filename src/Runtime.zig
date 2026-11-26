@@ -3,6 +3,8 @@ const Exports = @import("Exports.zig").Exports;
 const Cache = @import("Cache.zig").Cache;
 const Error = @import("error.zig").Error;
 const Class = @import("Class.zig").Class;
+const Image = @import("Image.zig").Image;
+const std = @import("std");
 
 const game_assembly_name = [16:0]u16{
     'G', 'a', 'm', 'e', 'A', 's', 's', 'e', 'm', 'b', 'l', 'y', '.', 'd', 'l', 'l',
@@ -28,6 +30,21 @@ pub const Runtime = struct {
             .domain = domain,
             .cache = cache,
         };
+    }
+
+    pub fn findImage(self: Runtime, name: [:0]const u8) Error!Image {
+        const domain = self.domain orelse return error.NoDomain;
+        var count: usize = 0;
+        const assemblies = self.exports.domain_get_assemblies(domain, &count);
+        var index: usize = 0;
+        while (index < count) : (index += 1) {
+            const image = self.exports.assembly_get_image(assemblies[index]) orelse continue;
+            const image_name = self.exports.image_get_name(image) orelse continue;
+            if (std.mem.eql(u8, std.mem.span(image_name), name)) {
+                return .{ .runtime = self, .pointer = image };
+            }
+        }
+        return error.ImageNotFound;
     }
 
     pub fn findClass(self: Runtime, namespace: [:0]const u8, name: [:0]const u8) Error!Class {

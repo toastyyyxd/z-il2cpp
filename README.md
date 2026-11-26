@@ -43,7 +43,7 @@ Session start: about 1 second to gadget port. Probe: about 0.2 seconds against a
 
 ## Hooks
 
-Native inline hooks use vendored MinHook. Windows x64 only.
+Native inline hooks use vendored MinHook. Windows x64 only. The library API is `z_il2cpp.Hooks`.
 
 - `tests/hooks/host.zig`: game-free hook test
 - `tests/hooks/spike.zig`: DLL that hooks `il2cpp_domain_get` in game
@@ -129,6 +129,8 @@ src/Runtime.zig            runtime init, thread attach, class lookup
 src/Class.zig              class lookup, method and field lookup
 src/Method.zig             managed invocation
 src/Field.zig              field read and write
+src/Image.zig              image enumeration
+src/Hooks.zig              typed hook API, method entry hooks
 src/Cache.zig              scratch-backed lookup cache
 src/convert.zig            boxed value conversion
 src/error.zig              error set
@@ -137,6 +139,7 @@ tools/strip_pe_tls.zig     PE TLS directory strip
 tools/gen_manifest.zig     artifact manifest (name, size, sha256)
 tests/smoke/host.zig       smoke host, loads frida-gadget.dll
 tests/smoke/agent.js       smoke agent, maps artifact and asserts ABI
+tests/support/frames.zig    shared Update hook helper
 tests/ingame/probe.js      dev probe agent
 tests/ingame/agent.js      one-shot probe agent
 scripts/smoke.sh           smoke orchestration
@@ -178,6 +181,16 @@ const utf8 = try text.toUtf8(buffer[0..]);
 const handle = try Handle.acquire(runtime, instance, .strong);
 defer handle.release();
 const target = handle.target();
+
+const image = try runtime.findImage("Assembly-CSharp.dll");
+const update_class = try image.classAt(0);
+const base = update_class.derivesFromName("MonoBehaviour");
+
+const update = try update_class.findMethod("Update", 0);
+const entry = try update.entryPoint();
+
+const hook = try Hooks.hookMethod(fn (?*anyopaque) callconv(.c) void, update, &detour);
+defer hook.detach();
 ```
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.
@@ -244,6 +257,7 @@ Error codes.
 -21 string conversion failed
 -22 invalid buffer
 -23 hook failed
+-24 image not found
 -16 virtual method not supported
 -17 invalid parameter count
 ```

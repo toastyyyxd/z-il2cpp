@@ -133,19 +133,27 @@ pub fn build(b: *std.Build) void {
     hooks_spike_step.dependOn(&hooks_spike_install.step);
     b.getInstallStep().dependOn(&hooks_spike_install.step);
 
-    const dev_lib = b.createModule(.{
+    const hook_lib = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = hooks_target,
         .optimize = .ReleaseSmall,
         .link_libc = true,
     });
+    const frames_module = b.createModule(.{
+        .root_source_file = b.path("tests/support/frames.zig"),
+        .target = hooks_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    frames_module.addImport("z_il2cpp", hook_lib);
     const dev_module = b.createModule(.{
         .root_source_file = b.path("tests/dev/module.zig"),
         .target = hooks_target,
         .optimize = .ReleaseSmall,
         .link_libc = true,
     });
-    dev_module.addImport("z_il2cpp", dev_lib);
+    dev_module.addImport("z_il2cpp", hook_lib);
+    dev_module.addImport("frames", frames_module);
     const dev_dll = b.addLibrary(.{
         .name = "zil2cpp-dev",
         .linkage = .dynamic,
@@ -172,24 +180,20 @@ pub fn build(b: *std.Build) void {
     const native_proxy_install = b.addInstallArtifact(native_proxy, .{
         .dest_dir = .{ .override = .{ .custom = "native" } },
     });
-    const native_zil2cpp = b.addLibrary(.{
-        .name = "zil2cpp",
-        .linkage = .dynamic,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/native/module.zig"),
-            .target = hooks_target,
-            .optimize = .ReleaseSmall,
-            .link_libc = true,
-        }),
-    });
-    addMinHook(b, native_zil2cpp.root_module);
-    const native_lib = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+    const native_module = b.createModule(.{
+        .root_source_file = b.path("tests/native/module.zig"),
         .target = hooks_target,
         .optimize = .ReleaseSmall,
         .link_libc = true,
     });
-    native_zil2cpp.root_module.addImport("z_il2cpp", native_lib);
+    native_module.addImport("z_il2cpp", hook_lib);
+    native_module.addImport("frames", frames_module);
+    const native_zil2cpp = b.addLibrary(.{
+        .name = "zil2cpp",
+        .linkage = .dynamic,
+        .root_module = native_module,
+    });
+    addMinHook(b, native_zil2cpp.root_module);
     const native_zil2cpp_install = b.addInstallArtifact(native_zil2cpp, .{
         .dest_dir = .{ .override = .{ .custom = "native" } },
     });

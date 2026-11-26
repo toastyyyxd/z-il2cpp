@@ -22,4 +22,5 @@ pub const Error = error{
     StringConversionFailed,
     InvalidBuffer,
     HookFailed,
+    ImageNotFound,
 };
