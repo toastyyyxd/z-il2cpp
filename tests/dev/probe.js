@@ -13,17 +13,30 @@ function runTest() {
 
     const call = (name, returnType, argumentTypes) => new NativeFunction(getProcAddress(module, Memory.allocUtf8String(name)), returnType, argumentTypes);
 
-    const selftest = call("dev_selftest", "int", [])();
+    const widthStatus = call("dev_selftest_width", "int", [])();
+    report({ kind: "width-selftest", status: widthStatus });
+    const argsStatus = call("dev_selftest_args", "int", [])();
+    report({ kind: "args-selftest", status: argsStatus });
+    const selftest = widthStatus === 1 && argsStatus === 1 ? 1 : -1;
     const before = call("dev_width_before", "int", [])();
     const after = call("dev_width_after", "int", [])();
     const final = call("dev_width_final", "int", [])();
     const count = call("dev_count", "uint", [])();
     const offset = call("dev_offset", "size_t", [])();
+    const argCalls = call("dev_arg_calls", "uint", [])();
+    const argSeen = call("dev_arg_seen", "float", [])();
+    const argBefore = call("dev_arg_before", "float", [])();
+    const argAfter = call("dev_arg_after", "float", [])();
+    const argFinal = call("dev_arg_final", "float", [])();
 
     report({ kind: "details", selftest: selftest, before: before, after: after, final: final, count: count, offset: offset.toString() });
+    report({ kind: "arguments", calls: argCalls, seen: argSeen, before: argBefore, after: argAfter, final: argFinal });
 
-    const ok = selftest === 1 && before === after && after === final && count === 2;
+    const ok = selftest === 1 && before === after && after === final && count === 2 && argCalls === 1 && argSeen === 0.5 && argAfter === 0.5;
     report({ kind: "result", ok: ok, selftest: selftest });
+
+    const freeLibrary = new NativeFunction(kernel32.getExportByName("FreeLibrary"), "int", ["pointer"]);
+    freeLibrary(module);
 }
 
 function arm(mapped) {

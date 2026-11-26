@@ -1,25 +1,27 @@
 const zil2cpp = @import("z_il2cpp");
+const MinHook = zil2cpp.MinHook;
 const Runtime = zil2cpp.Runtime;
 const Loader = zil2cpp.Loader;
 const Error = zil2cpp.Error;
-
-extern fn MH_Initialize() callconv(.winapi) c_int;
-extern fn MH_Uninitialize() callconv(.winapi) c_int;
-extern fn MH_CreateHook(target: ?*anyopaque, detour: ?*anyopaque, original: ?*?*anyopaque) callconv(.winapi) c_int;
-extern fn MH_EnableHook(target: ?*anyopaque) callconv(.winapi) c_int;
-extern fn MH_DisableHook(target: ?*anyopaque) callconv(.winapi) c_int;
-extern fn MH_RemoveHook(target: ?*anyopaque) callconv(.winapi) c_int;
 
 extern "kernel32" fn GetModuleHandleW(name: [*:0]const u16) callconv(.winapi) ?*anyopaque;
 extern "kernel32" fn GetProcAddress(module: ?*anyopaque, name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
 
 var scratch: [8192]u8 align(16) = @splat(0);
-var hook_count: u32 = 0;
-var hook_offset: usize = 0;
+
+var width_calls: u32 = 0;
+var width_offset: usize = 0;
 var width_before: i32 = 0;
 var width_after: i32 = 0;
 var width_final: i32 = 0;
-var original_width: ?*const fn () callconv(.c) i32 = null;
+var width_hook: ?MinHook.TypedHook(fn () callconv(.c) i32) = null;
+
+var arg_calls: u32 = 0;
+var arg_seen: f32 = 0;
+var arg_before: f32 = 0;
+var arg_after: f32 = 0;
+var arg_final: f32 = 0;
+var arg_hook: ?MinHook.TypedHook(fn (f32) callconv(.c) void) = null;
 
 fn loader() Loader {
     return .{ .get_module_handle = GetModuleHandleW, .get_proc_address = GetProcAddress };
@@ -27,18 +29,6 @@ fn loader() Loader {
 
 fn runtime() Error!Runtime {
     return Runtime.init(loader(), scratch[0..]);
-}
-
-fn detour() callconv(.c) i32 {
-    hook_count +%= 1;
-    const function = original_width orelse return -1;
-    return function();
-}
-
-fn width(runtime_value: Runtime) i32 {
-    const screen = runtime_value.findClass("UnityEngine", "Screen") catch return -100;
-    const method = screen.findMethod("get_width", 0) catch return -101;
-    return method.invoke(.{}, i32) catch return -102;
 }
 
 fn errorCode(err: Error) i32 {
@@ -65,58 +55,100 @@ fn errorCode(err: Error) i32 {
         error.HandleFailed => -20,
         error.StringConversionFailed => -21,
         error.InvalidBuffer => -22,
+        error.HookFailed => -23,
     };
 }
 
-fn tryOffset(runtime_value: Runtime, method_info: ?*anyopaque, offset: usize) bool {
-    const bytes: [*]const u8 = @ptrCast(method_info.?);
+fn widthDetour() callconv(.c) i32 {
+    width_calls +%= 1;
+    const hook = width_hook orelse return -1;
+    return hook.original();
+}
+
+fn timeScaleDetour(value: f32) callconv(.c) void {
+    arg_calls +%= 1;
+    arg_seen = value;
+    const hook = arg_hook orelse return;
+    hook.original(value);
+}
+
+fn methodCodePointer(method_info: ?*anyopaque, offset: usize) ?*anyopaque {
+    const info = method_info orelse return null;
+    const bytes: [*]const u8 = @ptrCast(info);
     const candidate = @as(*align(1) const usize, @ptrCast(bytes + offset)).*;
-    if (candidate == 0) return false;
-    const target: *anyopaque = @ptrFromInt(candidate);
-    if (MH_CreateHook(target, @ptrCast(@constCast(&detour)), @ptrCast(&original_width)) != 0) return false;
-    if (MH_EnableHook(target) != 0) {
-        _ = MH_RemoveHook(target);
-        return false;
-    }
-    const attempt = width(runtime_value);
-    if (hook_count > 0 and attempt == width_before) {
-        hook_offset = offset;
+    if (candidate == 0) return null;
+    return @ptrFromInt(candidate);
+}
+
+fn installWidthHook(runtime_value: Runtime, method_info: ?*anyopaque, offset: usize) bool {
+    const address = methodCodePointer(method_info, offset) orelse return false;
+    width_hook = MinHook.TypedHook(fn () callconv(.c) i32).install(address, &widthDetour) catch return false;
+    const screen = runtime_value.findClass("UnityEngine", "Screen") catch return false;
+    const method = screen.findMethod("get_width", 0) catch return false;
+    const attempt = method.invoke(.{}, i32) catch return false;
+    if (width_calls > 0 and attempt == width_before) {
+        width_offset = offset;
         return true;
     }
-    _ = MH_DisableHook(target);
-    _ = MH_RemoveHook(target);
+    width_hook.?.detach();
+    width_hook = null;
     return false;
 }
 
-export fn dev_selftest() callconv(.c) i32 {
-    if (MH_Initialize() != 0) return -1;
-    const runtime_value = runtime() catch |err| return errorCode(err);
-    width_before = width(runtime_value);
-    if (width_before <= 0) return -2;
+fn selftestWidth(runtime_value: Runtime) i32 {
     const screen = runtime_value.findClass("UnityEngine", "Screen") catch return -3;
     const method = screen.findMethod("get_width", 0) catch return -4;
-    const method_info = method.pointer orelse return -5;
-
+    width_before = method.invoke(.{}, i32) catch return -5;
+    if (width_before <= 0) return -5;
     var installed = false;
     for ([_]usize{ 0, 8 }) |offset| {
-        if (tryOffset(runtime_value, method_info, offset)) {
+        if (installWidthHook(runtime_value, method.pointer, offset)) {
             installed = true;
             break;
         }
     }
     if (!installed) return -6;
-
-    width_after = width(runtime_value);
-    const target = blk: {
-        const bytes: [*]const u8 = @ptrCast(method_info);
-        const candidate = @as(*align(1) const usize, @ptrCast(bytes + hook_offset)).*;
-        break :blk @as(*anyopaque, @ptrFromInt(candidate));
-    };
-    _ = MH_DisableHook(target);
-    _ = MH_RemoveHook(target);
-    width_final = width(runtime_value);
-    _ = MH_Uninitialize();
+    width_after = method.invoke(.{}, i32) catch return -7;
+    width_hook.?.detach();
+    width_hook = null;
+    width_final = method.invoke(.{}, i32) catch return -8;
+    if (width_before != width_after or width_after != width_final) return -9;
     return 1;
+}
+
+fn selftestArguments(runtime_value: Runtime) i32 {
+    const time = runtime_value.findClass("UnityEngine", "Time") catch return -10;
+    const setter = time.findMethod("set_timeScale", 1) catch return -11;
+    const getter = time.findMethod("get_timeScale", 0) catch return -12;
+    arg_before = getter.invoke(.{}, f32) catch return -13;
+    const address = methodCodePointer(setter.pointer, 0) orelse return -14;
+    arg_hook = MinHook.TypedHook(fn (f32) callconv(.c) void).install(address, &timeScaleDetour) catch return -15;
+    setter.invoke(.{@as(f32, 0.5)}, void) catch return -16;
+    arg_after = getter.invoke(.{}, f32) catch return -17;
+    const seen = arg_seen;
+    const calls = arg_calls;
+    arg_hook.?.detach();
+    arg_hook = null;
+    setter.invoke(.{arg_before}, void) catch return -18;
+    arg_final = getter.invoke(.{}, f32) catch return -19;
+    if (calls != 1 or seen != 0.5 or arg_after != 0.5) return -20;
+    return 1;
+}
+
+export fn dev_selftest_width() callconv(.c) i32 {
+    MinHook.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    const status = selftestWidth(runtime_value);
+    MinHook.deinit() catch return -2;
+    return status;
+}
+
+export fn dev_selftest_args() callconv(.c) i32 {
+    MinHook.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    const status = selftestArguments(runtime_value);
+    MinHook.deinit() catch return -2;
+    return status;
 }
 
 export fn dev_width_before() callconv(.c) i32 {
@@ -132,9 +164,29 @@ export fn dev_width_final() callconv(.c) i32 {
 }
 
 export fn dev_count() callconv(.c) u32 {
-    return hook_count;
+    return width_calls;
 }
 
 export fn dev_offset() callconv(.c) usize {
-    return hook_offset;
+    return width_offset;
+}
+
+export fn dev_arg_calls() callconv(.c) u32 {
+    return arg_calls;
+}
+
+export fn dev_arg_seen() callconv(.c) f32 {
+    return arg_seen;
+}
+
+export fn dev_arg_before() callconv(.c) f32 {
+    return arg_before;
+}
+
+export fn dev_arg_after() callconv(.c) f32 {
+    return arg_after;
+}
+
+export fn dev_arg_final() callconv(.c) f32 {
+    return arg_final;
 }

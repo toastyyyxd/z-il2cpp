@@ -57,6 +57,22 @@ MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
 Managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build.
 
+`z_il2cpp.MinHook` wraps MinHook with typed hooks:
+
+```zig
+var hook: ?MinHook.TypedHook(fn (f32) callconv(.c) void) = null;
+
+fn detour(value: f32) callconv(.c) void {
+    seen = value;
+    hook.?.original(value);
+}
+
+hook = try MinHook.TypedHook(fn (f32) callconv(.c) void).install(address, &detour);
+hook.?.detach();
+```
+
+Detour signatures match the target. Arguments and return values are ordinary Zig parameters and results.
+
 
 ## Development DLL loop
 
@@ -66,9 +82,9 @@ A normal DLL loaded by the agent. Unique file name per build. No game restart.
 GAME_DIR=/path/to/game scripts/dev-probe.sh
 ```
 
-Iteration: build, copy, load, hook selftest. About 0.3 seconds cached.
+Iteration: build, copy, load, hook selftest, unload. About 0.26 seconds cached.
 
-Loaded DLLs are not unloaded during a session. Hooks are removed by the selftest.
+Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks are removed.
 
 ## Layout
 
@@ -192,6 +208,7 @@ Error codes.
 -20 handle creation failed
 -21 string conversion failed
 -22 invalid buffer
+-23 hook failed
 -16 virtual method not supported
 -17 invalid parameter count
 ```

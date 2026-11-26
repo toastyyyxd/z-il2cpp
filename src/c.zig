@@ -124,6 +124,7 @@ fn errorCode(err: Error) i32 {
         error.HandleFailed => -20,
         error.StringConversionFailed => -21,
         error.InvalidBuffer => -22,
+        error.HookFailed => -23,
     };
 }
 

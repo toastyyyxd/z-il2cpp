@@ -21,4 +21,5 @@ pub const Error = error{
     HandleFailed,
     StringConversionFailed,
     InvalidBuffer,
+    HookFailed,
 };
