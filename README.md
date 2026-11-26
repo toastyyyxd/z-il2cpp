@@ -73,6 +73,18 @@ hook.?.detach();
 
 Detour signatures match the target. Arguments and return values are ordinary Zig parameters and results.
 
+Generic and inflated methods have a different entry ABI. Filter them out before hooking, or pass the hidden method context argument explicitly.
+
+## Native frame execution
+
+`tests/dev` hooks up to 16 `Update` methods from `Assembly-CSharp.dll`:
+
+- classes deriving from `MonoBehaviour`
+- non-static methods
+- non-generic and non-inflated classes and methods
+
+In-game result: 659887 native detour calls in about 2 seconds, originals executed, game alive, hooks removed cleanly. No JS runs per call. This is the native execution model.
+
 
 ## Development DLL loop
 

@@ -60,12 +60,6 @@ function arm(mapped) {
     }
 
     try {
-        install(mapped.getExportByName("il2cpp_object_new"));
-    } catch (_) {}
-    try {
-        install(mapped.getExportByName("il2cpp_string_new"));
-    } catch (_) {}
-    try {
         install(Process.getModuleByName("user32.dll").getExportByName("PeekMessageW"));
     } catch (_) {}
     report({ kind: "armed", hooks: listeners.length });

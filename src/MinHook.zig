@@ -9,12 +9,16 @@ extern fn MH_EnableHook(target: ?*anyopaque) callconv(.winapi) c_int;
 extern fn MH_DisableHook(target: ?*anyopaque) callconv(.winapi) c_int;
 extern fn MH_RemoveHook(target: ?*anyopaque) callconv(.winapi) c_int;
 
+var initialized = false;
+
 pub fn init() Error!void {
+    if (initialized) return;
     try check(MH_Initialize());
+    initialized = true;
 }
 
 pub fn deinit() Error!void {
-    try check(MH_Uninitialize());
+    return;
 }
 
 pub fn TypedHook(comptime Signature: type) type {
