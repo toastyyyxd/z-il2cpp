@@ -1,6 +1,7 @@
 const std = @import("std");
 const linux = std.os.linux;
 const zil2cpp = @import("z_il2cpp");
+const build_options = @import("build_options");
 const frames = @import("frames");
 
 const Runtime = zil2cpp.Runtime;
@@ -9,7 +10,8 @@ const arm64 = zil2cpp.arm64;
 const android = zil2cpp.android;
 
 const LOG_INFO: c_int = 4;
-const LOG_PATH = "/data/data/com.example.game/zil2cpp-log.txt";
+const LOG_PATH = build_options.log_path;
+const LOG_PATH_Z = build_options.log_path ++ "\x00";
 
 const PthreadStart = *const fn (?*anyopaque) callconv(.c) ?*anyopaque;
 const PthreadCreate = *const fn (*usize, ?*const anyopaque, PthreadStart, ?*anyopaque) callconv(.c) c_int;
@@ -27,7 +29,7 @@ fn syscallOk(result: usize) bool {
 fn openLogFile() void {
     if (log_fd >= 0) return;
     const flags: linux.O = @bitCast(@as(u32, 0o1101));
-    const fd = linux.openat(linux.AT.FDCWD, LOG_PATH, flags, 0o644);
+    const fd = linux.openat(linux.AT.FDCWD, @ptrCast(&LOG_PATH_Z), flags, 0o644);
     if (syscallOk(fd)) log_fd = @intCast(fd);
 }
 

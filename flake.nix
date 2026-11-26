@@ -30,8 +30,6 @@
             pkgs.xz
             pkgs.git
 
-            pkgs.apksigner
-            pkgs.apktool
           ];
 
           shellHook = ''
@@ -40,7 +38,6 @@
             echo "  node:  $(node --version 2>/dev/null || echo unavailable)"
             echo "  frida: $(frida --version 2>/dev/null || echo unavailable)"
             echo "  zls:   $(zls --version 2>/dev/null || echo unavailable)"
-            echo "  apksigner: $(command -v apksigner 2>/dev/null || echo unavailable)"
           '';
         };
       });

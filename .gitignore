@@ -5,3 +5,5 @@ build/
 *.o
 *.obj
 *.pdb
+__pycache__/
+*.pyc

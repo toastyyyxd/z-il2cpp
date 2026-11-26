@@ -158,7 +158,6 @@ Each build uses a new DLL file name. The probe calls FreeLibrary after the hooks
 - Stub pages are retained after detach because other threads can still be inside them. Repeated native hook install and removal leaks one page per cycle.
 - MethodInfo layout, GC handle size, and array header size are validated against one game and Unity 6000.3. Probe each new build before relying on them.
 - Code patches and MinHook are visible to anti-cheat tooling. Do not use this in protected games.
-- The Android probe removes the target app for testing. Do not ship patched builds.
 - Linux x86_64 is validated in game, including native code hooks and managed method pointer hooks. Linux aarch64 is not validated.
 
 ## Acceptance tests
@@ -178,10 +177,11 @@ Android:
 
 ```sh
 zig build android
-a private test harness
+zig build android -Dandroid-log-path=/path/inside/the/app/zil2cpp-log.txt
 ```
 
-Expected: `width=2244`, prologue census, eight frame hooks, about 480 detour calls, hooks removed, process alive.
+Load the probe into a debuggable test build of your own app, then read the log.
+Expected: width, prologue census, eight frame hooks, hundreds of detour calls, hooks removed, process alive.
 
 ## Android arm64
 
@@ -207,13 +207,9 @@ const log = android.resolveSymbol("liblog.so", "__android_log_write");
 
 Symbol lookup uses `/proc/self/maps` and the ELF dynamic table. The module handle comes from `dlopen`.
 
-The probe loads the library into a repackaged split APK. `libmain.so` gains a `libzil2cpp.so` dependency. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. Results go to `/data/data/<package>/zil2cpp-log.txt`, read with `run-as`.
+The probe is loaded into a debuggable test build of your own app. A constructor starts a bionic pthread, waits for `libil2cpp.so`, opens it, and reads `UnityEngine.Screen.get_width`. The log path is selected at build time with `-Dandroid-log-path=...`.
 
-```sh
-a private test harness
-```
-
-Device: Android 17, arm64-v8a, adb, no root. Verified result: `width=2244`, prologue census, eight frame hooks, about 480 detour calls in eight seconds, six consecutive runs stable.
+Device: Android 17, arm64-v8a, adb, no root. Verified result: width, prologue census, eight frame hooks, about 480 detour calls in eight seconds, six consecutive runs stable.
 
 
 Native arm64 hooks use a 4-byte branch patch, a near stub, and a trampoline page with an instruction cache flush. Managed arm64 hooks replace the method pointer instead.
@@ -343,8 +339,6 @@ scripts/ingame.sh          one-shot probe orchestration
 scripts/hooks-smoke.sh     game-free hook test
 scripts/dev-probe.sh       dev DLL loop
 scripts/native-loader.sh   Frida-free loader test
-a private test harness   private test harness
-a private test tool  private test tool
 tests/linux/module.zig     Linux LD_PRELOAD probe
 tests/linux/loader_main.zig Linux loader test executable
 tests/native/proxy.zig     winhttp proxy, loads the mod DLL

@@ -217,6 +217,13 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSmall,
         .link_libc = false,
     });
+    const android_log_path = b.option(
+        []const u8,
+        "android-log-path",
+        "Path for the Android probe log",
+    ) orelse "/data/local/tmp/zil2cpp-log.txt";
+    const android_options = b.addOptions();
+    android_options.addOption([]const u8, "log_path", android_log_path);
     const android_module = b.createModule(.{
         .root_source_file = b.path("tests/android/module.zig"),
         .target = android_target,
@@ -224,6 +231,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = false,
     });
     android_module.addImport("z_il2cpp", android_lib);
+    android_module.addOptions("build_options", android_options);
     const android_frames = b.createModule(.{
         .root_source_file = b.path("tests/support/frames.zig"),
         .target = android_target,
