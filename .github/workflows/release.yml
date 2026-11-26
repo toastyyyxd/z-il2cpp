@@ -46,7 +46,8 @@ jobs:
           package() {
             target="$1"
             artifact="$2"
-            archive="z-il2cpp-${tag#v}-${target}"
+            suffix="${3:-}"
+            archive="z-il2cpp-${tag#v}-${target}${suffix}"
             mkdir -p "stage/$target"
             cp "$shared/$artifact" "stage/$target/"
             cp "$shared/manifest.json" "stage/$target/"
@@ -58,8 +59,8 @@ jobs:
           }
 
           package windows-x86_64 z-il2cpp-windows-x86_64.pe
-          package linux-x86_64 z-il2cpp-linux-x86_64.so
-          package linux-aarch64 z-il2cpp-linux-aarch64.so
+          package linux-x86_64 z-il2cpp-linux-x86_64.so -unvalidated
+          package linux-aarch64 z-il2cpp-linux-aarch64.so -unvalidated
           package android-arm64 z-il2cpp-android-arm64.so
 
           mkdir -p stage/all

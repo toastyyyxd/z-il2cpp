@@ -531,14 +531,16 @@ Assets:
 
 ```
 z-il2cpp-<version>-windows-x86_64.zip
-z-il2cpp-<version>-linux-x86_64.tar.gz
-z-il2cpp-<version>-linux-aarch64.tar.gz
+z-il2cpp-<version>-linux-x86_64-unvalidated.tar.gz
+z-il2cpp-<version>-linux-aarch64-unvalidated.tar.gz
 z-il2cpp-<version>-android-arm64.tar.gz
 z-il2cpp-<version>-all.tar.gz
 SHA256SUMS
 ```
 
 Each archive contains the shared artifact, the manifest, the README, and both license files.
+
+Linux assets are build-only and unvalidated. Supported targets are Windows x64 and Android arm64.
 
 ## License
 
