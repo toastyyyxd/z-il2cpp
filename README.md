@@ -220,6 +220,8 @@ while (fields.next()) |entry| {
 }
 ```
 
+Struct arguments and returns use Zig `extern struct` types. Layout must match the managed layout. Supported argument types: bool, integers, floats, enums, pointers, extern structs. Return types add void and `?*anyopaque` references.
+
 `Method.isVirtual`, `Method.resolveVirtual`, and `Method.virtualEntryPoint` cover overrides. `Hooks.hookVirtualMethod` resolves the override for an instance and hooks it.
 
 No allocator. Scratch is caller memory. One thread, attached in `Runtime.init`. Cache lives in scratch.

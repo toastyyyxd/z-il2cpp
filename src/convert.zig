@@ -25,3 +25,12 @@ pub fn writeAt(comptime T: type, address: [*]u8, value: T) void {
     const pointer: *align(1) T = @ptrCast(address);
     pointer.* = value;
 }
+
+test "struct read and write" {
+    const Point = extern struct { x: i32, y: i32 };
+    var buffer: [8]u8 = undefined;
+    writeAt(Point, buffer[0..], .{ .x = 3, .y = -4 });
+    const point = readAt(Point, buffer[0..]);
+    try @import("std").testing.expectEqual(@as(i32, 3), point.x);
+    try @import("std").testing.expectEqual(@as(i32, -4), point.y);
+}

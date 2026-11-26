@@ -15,13 +15,17 @@ function runTest() {
 
     const widthStatus = call("dev_selftest_width", "int", [])();
     report({ kind: "width-selftest", status: widthStatus });
+    const structReturnStatus = call("dev_selftest_struct_return", "int", [])();
+    report({ kind: "struct-return-selftest", status: structReturnStatus });
+    const structArgsStatus = call("dev_selftest_struct_args", "int", [])();
+    report({ kind: "struct-args-selftest", status: structArgsStatus });
     const staticStatus = call("dev_selftest_static", "int", [])();
     report({ kind: "static-selftest", status: staticStatus });
     const virtualStatus = call("dev_selftest_virtual", "int", [])();
     report({ kind: "virtual-selftest", status: virtualStatus });
     const argsStatus = call("dev_selftest_args", "int", [])();
     report({ kind: "args-selftest", status: argsStatus });
-    const selftest = widthStatus === 1 && argsStatus === 1 && virtualStatus === 1 && staticStatus === 1 ? 1 : -1;
+    const selftest = widthStatus === 1 && argsStatus === 1 && virtualStatus === 1 && staticStatus === 1 && structReturnStatus === 1 && structArgsStatus === 1 ? 1 : -1;
     const before = call("dev_width_before", "int", [])();
     const after = call("dev_width_after", "int", [])();
     const final = call("dev_width_final", "int", [])();

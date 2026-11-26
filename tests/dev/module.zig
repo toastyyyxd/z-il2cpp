@@ -24,6 +24,8 @@ var arg_after: f32 = 0;
 var arg_final: f32 = 0;
 var arg_hook: ?Hooks.Hook(fn (f32) callconv(.c) void) = null;
 
+const Vector3 = extern struct { x: f32, y: f32, z: f32 };
+
 var virtual_calls: u32 = 0;
 var virtual_hook: ?Hooks.Hook(fn (?*anyopaque) callconv(.c) ?*anyopaque) = null;
 
@@ -133,6 +135,36 @@ fn selftestVirtual(runtime_value: Runtime) i32 {
     const written = returned_text.toUtf8(buffer[0..]) catch return -39;
     if (!std.mem.eql(u8, written, "virtual-hook")) return -40;
     return 1;
+}
+
+fn selftestStructReturn(runtime_value: Runtime) i32 {
+    const vector_class = runtime_value.findClass("UnityEngine", "Vector3") catch return -70;
+    const one_method = vector_class.findMethod("get_one", 0) catch return -71;
+    const one = one_method.invoke(.{}, Vector3) catch return -72;
+    if (one.x != 1 or one.y != 1 or one.z != 1) return -73;
+    return 1;
+}
+
+fn selftestStructArgs(runtime_value: Runtime) i32 {
+    const vector_class = runtime_value.findClass("UnityEngine", "Vector3") catch return -74;
+    const dot_method = vector_class.findMethod("Dot", 2) catch return -75;
+    const left = Vector3{ .x = 1, .y = 2, .z = 3 };
+    const right = Vector3{ .x = 4, .y = 5, .z = 6 };
+    const dot = dot_method.invoke(.{ left, right }, f32) catch return -76;
+    if (dot != 32) return -77;
+    return 1;
+}
+
+export fn dev_selftest_struct_return() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestStructReturn(runtime_value);
+}
+
+export fn dev_selftest_struct_args() callconv(.c) i32 {
+    Hooks.init() catch return -1;
+    const runtime_value = runtime() catch |err| return errorCode(err);
+    return selftestStructArgs(runtime_value);
 }
 
 export fn dev_selftest_static() callconv(.c) i32 {

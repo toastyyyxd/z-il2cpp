@@ -12,10 +12,6 @@ pub const Method = struct {
         return (self.runtime.exports.method_get_flags(self.pointer, &iflags) & 0x0010) != 0;
     }
 
-    pub fn isGeneric(self: Method) bool {
-        return self.runtime.exports.method_is_generic(self.pointer);
-    }
-
     pub fn isVirtual(self: Method) bool {
         var iflags: u32 = 0;
         return (self.runtime.exports.method_get_flags(self.pointer, &iflags) & 0x0040) != 0;
@@ -25,6 +21,10 @@ pub const Method = struct {
         const object = instance orelse return error.NullObject;
         const pointer = self.runtime.exports.object_get_virtual_method(object, self.pointer) orelse return error.MethodNotFound;
         return .{ .runtime = self.runtime, .pointer = pointer };
+    }
+
+    pub fn isGeneric(self: Method) bool {
+        return self.runtime.exports.method_is_generic(self.pointer);
     }
 
     pub fn isInflated(self: Method) bool {
@@ -58,22 +58,23 @@ pub const Method = struct {
 
     fn call(self: Method, instance: ?*anyopaque, arguments: anytype, comptime ReturnType: type) Error!ReturnType {
         const ArgumentsType = @TypeOf(arguments);
-        const argument_count = switch (@typeInfo(ArgumentsType)) {
-            .@"struct" => |info| info.field_names.len,
-            else => 0,
+        const argument_types: []const type = switch (@typeInfo(ArgumentsType)) {
+            .@"struct" => |info| info.field_types,
+            else => &.{},
         };
+        const argument_count = argument_types.len;
         const method_pointer = self.pointer orelse return error.MethodNotFound;
         const expected = self.runtime.exports.method_get_param_count(method_pointer);
         if (argument_count != expected) return error.ArgumentCountMismatch;
 
-        var storage: [argument_count][8]u8 align(8) = undefined;
+        const Layout = comptime slotLayout(argument_types);
+        var storage: [argument_count][Layout.stride]u8 align(Layout.alignment) = undefined;
         var pointers: [argument_count]?*anyopaque = undefined;
         inline for (0..argument_count) |index| {
             const value = arguments[index];
             const ValueType = @TypeOf(value);
             if (!isSupported(ValueType)) return error.ArgumentsNotSupported;
-            if (@sizeOf(ValueType) > @sizeOf(@TypeOf(storage[0]))) return error.ArgumentsNotSupported;
-            storage[index] = @splat(0);
+            @memset(storage[index][0..], 0);
             @memcpy(storage[index][0..@sizeOf(ValueType)], std.mem.asBytes(&value));
             pointers[index] = @ptrCast(&storage[index]);
         }
@@ -88,9 +89,26 @@ pub const Method = struct {
         return convert.fromBoxed(ReturnType, boxed, self.runtime.exports.object_unbox);
     }
 
+    const SlotLayout = struct {
+        stride: usize,
+        alignment: usize,
+    };
+
+    fn slotLayout(comptime types: []const type) SlotLayout {
+        var size: usize = 8;
+        var alignment: usize = 8;
+        for (types) |ValueType| {
+            size = @max(size, @sizeOf(ValueType));
+            alignment = @max(alignment, @alignOf(ValueType));
+        }
+        const stride = (size + alignment - 1) & ~(alignment - 1);
+        return .{ .stride = stride, .alignment = alignment };
+    }
+
     fn isSupported(comptime ValueType: type) bool {
         return switch (@typeInfo(ValueType)) {
             .bool, .int, .float, .pointer, .@"enum" => true,
+            .@"struct" => |info| info.layout == .@"extern",
             else => false,
         };
     }
