@@ -133,6 +133,32 @@ pub fn build(b: *std.Build) void {
     hooks_spike_step.dependOn(&hooks_spike_install.step);
     b.getInstallStep().dependOn(&hooks_spike_install.step);
 
+    const dev_lib = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = hooks_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    const dev_module = b.createModule(.{
+        .root_source_file = b.path("tests/dev/module.zig"),
+        .target = hooks_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+    });
+    dev_module.addImport("z_il2cpp", dev_lib);
+    const dev_dll = b.addLibrary(.{
+        .name = "zil2cpp-dev",
+        .linkage = .dynamic,
+        .root_module = dev_module,
+    });
+    addMinHook(b, dev_dll.root_module);
+    const dev_dll_install = b.addInstallArtifact(dev_dll, .{
+        .dest_dir = .{ .override = .{ .custom = "dev" } },
+    });
+    const dev_dll_step = b.step("dev-dll", "Build the development DLL");
+    dev_dll_step.dependOn(&dev_dll_install.step);
+    b.getInstallStep().dependOn(&dev_dll_install.step);
+
     const test_step = b.step("test", "Run unit tests");
 
     const root_tests = b.addTest(.{ .root_module = mod });

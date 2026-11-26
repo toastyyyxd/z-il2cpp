@@ -55,10 +55,25 @@ scripts/hooks-smoke.sh
 
 MinHook is BSD 2-clause. Source in `third_party/minhook`.
 
+Managed method hooks use the code pointer at offset 0 of `MethodInfo`. Hooking `UnityEngine.Screen.get_width` and invoking it through `Method.invoke` triggers the detour. Offset 8 was not needed for this build.
+
+
+## Development DLL loop
+
+A normal DLL loaded by the agent. Unique file name per build. No game restart.
+
+```sh
+GAME_DIR=/path/to/game scripts/dev-probe.sh
+```
+
+Iteration: build, copy, load, hook selftest. About 0.3 seconds cached.
+
+Loaded DLLs are not unloaded during a session. Hooks are removed by the selftest.
+
 ## Layout
 
 ```
-build.zig                  build steps: default, shared, smoke-host, test, fmt
+build.zig                  build steps: default, shared, smoke-host, hooks-host, hooks-spike, dev-dll, test, fmt
 src/root.zig               public Zig API
 src/Loader.zig             loader function pointers
 src/Exports.zig            il2cpp export table and resolution
@@ -81,6 +96,9 @@ scripts/session.sh         persistent listen-mode game session
 scripts/probe.py           host probe runner
 scripts/ingame.sh          one-shot probe orchestration
 scripts/hooks-smoke.sh     game-free hook test
+scripts/dev-probe.sh       dev DLL loop
+tests/dev/module.zig       dev DLL, managed hook selftest
+tests/dev/probe.js         dev DLL probe
 tests/hooks/host.zig       game-free MinHook test
 tests/hooks/spike.zig      in-game hook spike DLL
 tests/hooks/spike.js       in-game hook spike probe

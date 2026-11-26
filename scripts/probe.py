@@ -12,9 +12,13 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=27042)
     parser.add_argument("--script", default="tests/ingame/probe.js")
     parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--set", action="append", default=[])
     args = parser.parse_args()
 
     source = open(args.script, "r", encoding="utf-8").read()
+    for item in args.set:
+        key, _, value = item.partition("=")
+        source = f"const {key} = {json.dumps(value)};\n" + source
     device = frida.get_device_manager().add_remote_device(f"127.0.0.1:{args.port}")
     processes = device.enumerate_processes()
     if not processes:
