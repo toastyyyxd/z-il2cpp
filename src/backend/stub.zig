@@ -35,3 +35,5 @@ pub fn usesMemoryPatch() bool {
 }
 
 pub fn detach(_: ?*anyopaque) void {}
+
+pub fn configure(_: bool, _: u64) void {}

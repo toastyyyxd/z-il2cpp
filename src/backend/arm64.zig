@@ -255,3 +255,5 @@ fn flushCache(start: usize, end: usize) void {
     asm volatile ("dsb ish" ::: .{ .memory = true });
     asm volatile ("isb" ::: .{ .memory = true });
 }
+
+pub fn configure(_: bool, _: u64) void {}

@@ -19,6 +19,10 @@ pub fn supportsMethodPointerHooks() bool {
     return Backend.supportsMethodPointer();
 }
 
+pub fn setCodeCaves(enabled: bool, entropy: u64) void {
+    Backend.configure(enabled, entropy);
+}
+
 pub fn usesMemoryPatch() bool {
     return Backend.usesMemoryPatch();
 }

@@ -18,6 +18,8 @@ var domain_hook: ?Hooks.Hook(DomainSignature) = null;
 var domain_calls: usize = 0;
 var width_hook: ?Hooks.MethodPointerHook(WidthSignature) = null;
 var width_calls: usize = 0;
+var width_code_hook: ?Hooks.Hook(WidthSignature) = null;
+var width_code_calls: usize = 0;
 
 fn openLog() void {
     const flags: linux.O = @bitCast(@as(u32, 0o1101));
@@ -54,6 +56,11 @@ fn widthDetour(method: ?*anyopaque) callconv(.c) i32 {
     return width_hook.?.original(method);
 }
 
+fn widthCodeDetour(method: ?*anyopaque) callconv(.c) i32 {
+    width_code_calls += 1;
+    return width_code_hook.?.original(method);
+}
+
 fn hookTests(screen: zil2cpp.Class) void {
     if (zil2cpp.linux.symbol("il2cpp_domain_get")) |raw| {
         const function: *const DomainSignature = @ptrCast(@alignCast(raw));
@@ -87,10 +94,23 @@ fn hookTests(screen: zil2cpp.Class) void {
     } else |err| {
         logFmt("method hook failed: {s}\n", .{@errorName(err)});
     }
+
+    const entry_address = (method.entryPoint() catch return) orelse return;
+    width_code_calls = 0;
+    if (Hooks.Hook(WidthSignature).install(entry_address, &widthCodeDetour)) |hook_value| {
+        var hook = hook_value;
+        width_code_hook = hook;
+        const coded = method.invoke(.{}, i32) catch -1;
+        width_code_hook = null;
+        hook.detach();
+        logFmt("method code hook calls={d} value={d}\n", .{ width_code_calls, coded });
+    } else |err| {
+        logFmt("method code hook failed: {s}\n", .{@errorName(err)});
+    }
 }
 
 fn frameTest(runtime: Runtime) void {
-    const installed = frames.installCode(runtime, frames.max_slots);
+    const installed = frames.install(runtime, frames.max_slots);
     sleepMilliseconds(12000);
     logFmt("frames installed={d} failures={d} calls={d}\n", .{ installed, frames.failureCount(), frames.count() });
     frames.remove();
@@ -128,6 +148,7 @@ fn worker() void {
         logFmt("invoke failed: {s}\n", .{@errorName(err)});
         return;
     };
+    Hooks.setCodeCaves(false, 0);
     logFmt("width={d}\n", .{width});
     hookTests(screen);
     frameTest(runtime);

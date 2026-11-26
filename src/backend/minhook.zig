@@ -67,3 +67,5 @@ pub fn usesMemoryPatch() bool {
 fn check(status: c_int) Error!void {
     if (status != MH_OK) return error.HookFailed;
 }
+
+pub fn configure(_: bool, _: u64) void {}

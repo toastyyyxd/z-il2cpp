@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
             .target = shared_target,
             .optimize = .ReleaseSmall,
             .link_libc = false,
+            .strip = true,
         });
         const library = b.addLibrary(.{
             .name = "z_il2cpp",
