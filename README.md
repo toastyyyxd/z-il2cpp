@@ -4,6 +4,8 @@
 [![zig](https://img.shields.io/badge/zig-0.18--dev-orange.svg)](https://ziglang.org)
 [![platforms](https://img.shields.io/badge/platforms-Windows%20x64%20%7C%20Android%20arm64-success.svg)](#artifacts)
 
+## Scope
+
 Zig bindings + native shared library for IL2CPP games. Game-agnostic.
 
 - injection, hooks: Frida
@@ -520,3 +522,7 @@ zig-out/shared/z-il2cpp-linux-aarch64.so
 zig-out/shared/z-il2cpp-android-arm64.so
 zig-out/shared/manifest.json
 ```
+
+## AI disclosure
+
+Generated almost entirely by an AI coding agent. Human direction and testing on Windows and Android guided it. Short development cycles were the primary factor.
