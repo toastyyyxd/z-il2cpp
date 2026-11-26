@@ -194,7 +194,7 @@ zig build android -Dandroid-log-path=/path/inside/the/app/zil2cpp-log.txt
 Load the probe into a debuggable test build of your own app, then read the log.
 
 ```sh
-scripts/android-probe.sh --base-apk app.apk --split-apk split.apk \
+tests/harness/android-probe.sh --base-apk app.apk --split-apk split.apk \
   --keystore test.keystore --package com.example.app
 ```
 
@@ -279,7 +279,10 @@ Startup mode is `init-hook`: the DLL installs a hook on `il2cpp_init` before it 
 
 Reusable scripts:
 
-- `scripts/android-probe.sh`: inject the Android probe into an APK you are authorized to modify, sign it, install it, and read the log. Target-specific manifest edits are CLI flags.
+- `scripts/android-inject.sh`: inject a native library into an APK, apply optional manifest edits, and sign it.
+- `scripts/android-install.sh`: install one or more APKs with adb.
+- `scripts/android-launch.sh`: force-stop, clear logcat, and launch a package.
+- `scripts/android-read-log.sh`: read a file from an application's private data directory.
 - `scripts/probe.py`: host-side Frida runner. Loads a JS agent, injects constants, and waits for its result.
 
 The acceptance harnesses in `tests/harness/` assume this repo's test games and local Wine/Frida setup. They are not part of the library API.
@@ -319,7 +322,11 @@ tests/smoke/agent.js       smoke agent, maps artifact and asserts ABI
 tests/support/frames.zig   shared Update hook helper
 tests/ingame/probe.js      dev probe agent
 tests/ingame/agent.js      one-shot probe agent
-scripts/android-probe.sh   APK instrumentation helper
+scripts/android-inject.sh  APK library injection and signing
+scripts/android-install.sh APK installation
+scripts/android-launch.sh  package launch
+scripts/android-read-log.sh private app file read
+tests/harness/android-probe.sh Android probe acceptance
 scripts/probe.py           Frida host probe runner
 tests/harness/smoke.sh     smoke orchestration
 tests/harness/session.sh   persistent listen-mode game session
