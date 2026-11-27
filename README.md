@@ -539,7 +539,7 @@ Error codes.
 -29 near trampoline page unavailable
 -30 page protection failed
 -31 instruction patch failed
--32 invalid init magic
+-32 reserve/depreciated (invalid init magic)
 -33 argument type mismatch
 -34 argument out of range
 ```
