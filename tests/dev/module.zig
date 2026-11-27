@@ -70,6 +70,9 @@ fn errorCode(err: Error) i32 {
         error.HookNoMemory => -29,
         error.HookProtectFailed => -30,
         error.HookWriteFailed => -31,
+        error.InvalidInitMagic => -32,
+        error.ArgumentTypeMismatch => -33,
+        error.ArgumentOutOfRange => -34,
     };
 }
 
