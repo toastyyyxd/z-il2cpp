@@ -8,11 +8,13 @@ GAME_DIR="${GAME_DIR:?set GAME_DIR}"
 WINEPREFIX="${WINEPREFIX:-$HOME/.cache/wine-test}"
 PORT="${PORT:-27042}"
 
+cleanup() { [ -d "$BACKUP" ] && rm -rf -- "$BACKUP"; }
+trap cleanup EXIT
 if [ "${1:-}" = "stop" ]; then
     "$REPO_DIR/scripts/wine-stop.sh" --prefix "$WINEPREFIX"
     if [ -d "$BACKUP" ]; then
         cp "$BACKUP"/* "$GAME_DIR"/ 2>/dev/null || true
-        rm -rf "$BACKUP"
+        rm -rf -- "$BACKUP"
     fi
     echo "session: stopped"
     exit 0

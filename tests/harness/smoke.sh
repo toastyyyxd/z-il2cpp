@@ -13,6 +13,13 @@ fail() {
     exit 1
 }
 
+case "$(realpath -m -- "$OUT_DIR")" in
+    "$REPO_DIR"/*|"${TMPDIR:-/tmp}"/*) ;;
+    *) fail "OUT_DIR must be under $REPO_DIR or ${TMPDIR:-/tmp} (got $OUT_DIR)" ;;
+esac
+
+command -v zig >/dev/null 2>&1 || fail "zig not found (nix develop / direnv shell)"
+
 command -v zig >/dev/null 2>&1 || fail "zig not found (nix develop / direnv shell)"
 command -v wine >/dev/null 2>&1 || fail "wine not found"
 
@@ -24,8 +31,8 @@ echo "smoke: building shared artifacts and host"
 zig build shared smoke-host
 
 echo "smoke: laying out $LAYOUT_DIR"
-rm -rf "$LAYOUT_DIR"
-mkdir -p "$LAYOUT_DIR/shared" "$LAYOUT_DIR/mods"
+rm -rf -- "$LAYOUT_DIR"
+mkdir -p -- "$LAYOUT_DIR/shared" "$LAYOUT_DIR/mods"
 cp "$FRIDA_GADGET" "$LAYOUT_DIR/frida-gadget.dll"
 cp "$REPO_DIR/tests/smoke/agent.js" "$LAYOUT_DIR/mods/agent.js"
 cat > "$LAYOUT_DIR/frida-gadget.config" <<'JSON'

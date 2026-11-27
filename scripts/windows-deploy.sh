@@ -38,12 +38,17 @@ if [ -z "$GAME_DIR" ]; then
     usage >&2
     exit 2
 fi
+GAME_DIR=$(realpath -m -- "$GAME_DIR")
+case "$GAME_DIR" in
+    /|/home|/root|/usr|/etc|/var|/nix|"$HOME")
+        echo "windows-deploy: refusing GAME_DIR=$GAME_DIR" >&2; exit 1 ;;
+esac
 [ -d "$GAME_DIR" ] || { echo "windows-deploy: no game directory: $GAME_DIR" >&2; exit 1; }
 
 if [ -n "$SHARED_DIR" ]; then
-    rm -rf "$GAME_DIR/shared"
-    mkdir -p "$GAME_DIR/shared"
-    cp "$SHARED_DIR"/* "$GAME_DIR/shared/"
+    rm -- -rf "$GAME_DIR/shared"
+    mkdir -- -p "$GAME_DIR/shared"
+    cp -- "$SHARED_DIR"/* "$GAME_DIR/shared/"
 fi
 if [ -n "$GADGET" ]; then
     cp "$GADGET" "$GAME_DIR/frida-gadget.dll"
@@ -61,8 +66,14 @@ copy_pairs() {
         echo "windows-deploy: expected SRC:DEST, got $pair" >&2
         exit 2
     fi
-    mkdir -p "$GAME_DIR/$(dirname "$dest")"
-    cp "$src" "$GAME_DIR/$dest"
+    local dest_abs
+    dest_abs=$(realpath -m -- "$GAME_DIR/$dest")
+    case "$dest_abs" in
+        "$GAME_DIR"/*) ;;
+        *) echo "windows-deploy: $pair escapes GAME_DIR" >&2; exit 2 ;;
+    esac
+    mkdir -p -- "$(dirname -- "$dest_abs")"
+    cp -- "$src" "$dest_abs"
 }
 for pair in "${AGENTS[@]}"; do copy_pairs "$pair"; done
 for pair in "${COPIES[@]}"; do copy_pairs "$pair"; done
