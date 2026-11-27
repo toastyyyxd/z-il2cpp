@@ -424,6 +424,8 @@ while (methods.next()) |method| {
 
 Struct arguments and returns use Zig `extern struct` types. Layout must match the managed layout. Supported argument types: bool, integers, floats, enums, pointers, extern structs. Return types add void and `?*anyopaque` references.
 
+Arguments are converted to the managed parameter type. An integer converts to a float parameter. An integer converts to an integer parameter of another width. A float argument for an integer parameter returns `error.ArgumentTypeMismatch`. A value outside the parameter range returns `error.ArgumentOutOfRange`. Return values are converted the same way. A build without the reflection exports keeps the raw copy, so the argument and return types must match exactly.
+
 Managed exceptions have a detailed path.
 
 ```zig
@@ -538,6 +540,8 @@ Error codes.
 -30 page protection failed
 -31 instruction patch failed
 -32 invalid init magic
+-33 argument type mismatch
+-34 argument out of range
 ```
 
 Codes are append-only and never renumbered. `zil2cpp_error_name` returns static strings for logs.

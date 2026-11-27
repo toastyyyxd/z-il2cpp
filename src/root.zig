@@ -22,4 +22,5 @@ pub const Exception = @import("Exception.zig").Exception;
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("convert.zig");
 }

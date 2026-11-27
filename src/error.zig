@@ -14,6 +14,8 @@ pub const Error = error{
     UnboxFailed,
     CacheFull,
     ArgumentsNotSupported,
+    ArgumentTypeMismatch,
+    ArgumentOutOfRange,
     ArgumentCountMismatch,
     VirtualMethodNotSupported,
     InvalidParameterCount,

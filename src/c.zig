@@ -82,6 +82,8 @@ export fn zil2cpp_error_name(code: i32) callconv(.c) [*:0]const u8 {
         -30 => "page protection failed",
         -31 => "instruction patch failed",
         -32 => "invalid init magic",
+        -33 => "argument type mismatch",
+        -34 => "argument out of range",
         else => "unknown",
     };
 }
@@ -174,6 +176,8 @@ fn errorCode(err: Error) i32 {
         error.HookNoMemory => -29,
         error.HookProtectFailed => -30,
         error.HookWriteFailed => -31,
+        error.ArgumentTypeMismatch => -33,
+        error.ArgumentOutOfRange => -34,
     };
 }
 

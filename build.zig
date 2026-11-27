@@ -333,7 +333,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(manifest_tests).step);
 
     const fmt = b.addFmt(.{
-        .paths = &.{ b.path("build.zig"), b.path("src"), b.path("tools"), b.path("tests") },
+        .paths = &.{ b.path("build.zig"), b.path("src"), b.path("build"), b.path("tests") },
         .check = true,
     });
     const fmt_step = b.step("fmt", "Formatting check");

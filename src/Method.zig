@@ -108,9 +108,10 @@ pub const Method = struct {
             const value = arguments[index];
             const ValueType = @TypeOf(value);
             if (!isSupported(ValueType)) return error.ArgumentsNotSupported;
-            @memset(storage[index][0..], 0);
-            @memcpy(storage[index][0..@sizeOf(ValueType)], std.mem.asBytes(&value));
-            pointers[index] = @ptrCast(&storage[index]);
+            pointers[index] = if (self.parameterKind(method_pointer, index)) |kind|
+                try convert.storeArgument(kind, value, storage[index][0..])
+            else
+                try convert.storeUntyped(value, storage[index][0..]);
         }
 
         var exception: ?*anyopaque = null;
@@ -122,7 +123,26 @@ pub const Method = struct {
         if (ReturnType == void) return .{ .value = {} };
         if (ReturnType == ?*anyopaque) return .{ .value = result };
         const boxed = result orelse return error.InvokeFailed;
+        if (self.returnKind(method_pointer)) |kind| {
+            return .{ .value = try convert.fromBoxedAs(ReturnType, boxed, self.runtime.exports.object_unbox, kind) };
+        }
         return .{ .value = try convert.fromBoxed(ReturnType, boxed, self.runtime.exports.object_unbox) };
+    }
+
+    fn parameterKind(self: Method, method_pointer: ?*anyopaque, index: usize) ?convert.Kind {
+        const exports = self.runtime.exports;
+        const get_parameter = exports.method_get_param orelse return null;
+        const get_type = exports.type_get_type orelse return null;
+        const parameter = get_parameter(method_pointer, @intCast(index)) orelse return null;
+        return convert.kindOf(get_type(parameter));
+    }
+
+    fn returnKind(self: Method, method_pointer: ?*anyopaque) ?convert.Kind {
+        const exports = self.runtime.exports;
+        const get_return = exports.method_get_return_type orelse return null;
+        const get_type = exports.type_get_type orelse return null;
+        const returned = get_return(method_pointer) orelse return null;
+        return convert.kindOf(get_type(returned));
     }
 
     const SlotLayout = struct {
